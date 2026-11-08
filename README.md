@@ -138,7 +138,9 @@ bpf-linker, bindgen, aya-tool): 15 minutes on a fast link, an hour on a slow one
 - `report [m]`: prints the newest report (of that machine).
 - `down <m> [--destroy]`: `vagrant halt` (or `destroy --force`).
 - `check`: what CI can check without a VM: the scripts parse, the catalogs are valid, every
-  scenario has a runner catalog row and a readable sidecar.
+  scenario has a runner catalog row and a readable sidecar, and (with pwsh)
+  `validate-windows-admin.ps1` resolves and loads `scenarios/scenarios/common.ps1` under the
+  root.
 
 For anything else, plain Vagrant in `vagrant/` (`vagrant ssh debian12`,
 `vagrant provision debian12 --provision-with toolchain`, ...); set `RIG_ROOT` there too if
