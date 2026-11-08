@@ -1,18 +1,18 @@
 <#
-  Dot-source this for short forms of the repetitive Hyper-V lab commands
-  (the ones spelled out in README.md). RUN FROM AN ELEVATED PowerShell --
-  the Hyper-V provider needs elevation for every command that touches a VM.
+  Dot-source this for short forms of the Hyper-V lab commands. RUN FROM AN ELEVATED
+  PowerShell -- the Hyper-V provider needs elevation for every command that touches a VM.
+  The cross-platform way is `python rig.py up/build/run` (README.md);
+  these are the same steps for a PowerShell session that lives in rig\vagrant.
 
-    cd lab\vagrant-hyperv
-    . .\helpers.ps1              # dot-source (note the leading dot + space)
+    . rig\vagrant\hyperv\helpers.ps1   # dot-source (note the leading dot + space)
     vprep                        # wsl --shutdown + check rsync + set the switch
-    vup                          # up + provision the primary box (ubuntu2204)
-    vbuild                       # cargo build --release -p agent, in the VM
-    vscen beacon T1071           # run agent + a scenario, grep the alert
+    vup                          # up + provision the default machine
+    vbuild                       # provisioning/agent-build.sh in the VM
+    vscen beacon                 # runner/run-scenarios.sh beacon in the VM
     vreset                       # destroy -f + up  (clean rollback)
 
-  First-run host setup is still .\bootstrap.ps1 (Hyper-V feature, group,
-  Vagrant, Default Switch) -- run that once, not every session.
+  First-run host setup is .\bootstrap.ps1 (Hyper-V feature, group, Vagrant, Default
+  Switch) -- once, not every session.
 
   Every function takes an optional machine name; it defaults to $LabMachine
   ("ubuntu2204"). Set $LabMachine = "debian12" to switch the default.
@@ -30,6 +30,9 @@ if (-not ([Security.Principal.WindowsPrincipal] `
 # switches present ("Default Switch" + "WSL (Hyper-V firewall)") Vagrant 2.4.9
 # still prints the menu -- just answer 1. Setting it does no harm.
 $env:VAGRANT_HYPERV_SWITCH = "Default Switch"
+# The one Vagrantfile lives in rig\vagrant, whichever directory this session is in.
+$env:VAGRANT_CWD = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$env:VAGRANT_DEFAULT_PROVIDER = "hyperv"
 
 # Default target machine for every helper below.
 $LabMachine = "ubuntu2204"
@@ -121,48 +124,27 @@ function vreset {
 }
 
 function vbuild {
-  <#
-    Release build of the agent inside the VM. Fails fast if bpf-linker is not on
-    PATH -- without it the build silently omits the eBPF probes and the agent
-    errors at runtime ("built without embedded eBPF probes").
-  #>
-  param([string]$Machine)
-  Invoke-LabRemote (Get-LabMachine $Machine) @'
-set -e
-command -v bpf-linker >/dev/null || { echo "bpf-linker NOT on PATH -- run: vagrant provision" >&2; exit 1; }
-cd /synthaea && cargo build --release -p agent
-'@
+  <# Build the agent in the VM (provisioning/agent-build.sh; extra flags pass through, e.g. "--offline"). #>
+  param([string]$Machine, [string]$Flags = "")
+  Invoke-LabRemote (Get-LabMachine $Machine) "bash /synthaea/rig/provisioning/agent-build.sh $Flags"
 }
 
 function vstatus {
   <# Verifier check: loads all sensor programs and reports (needs a prior vbuild). #>
   param([string]$Machine)
-  Invoke-LabRemote (Get-LabMachine $Machine) 'cd /synthaea/agent && sudo ./target/release/agent status'
+  Invoke-LabRemote (Get-LabMachine $Machine) 'sudo $(sed -n "s/^agent_bin=//p" ~/synthaea-rig/build-info) status'
 }
 
 function vscen {
   <#
-    Run the agent, fire one scenario, grep the alert file, then stop the agent.
-      vscen beacon T1071
-      vscen dns-exfil T1048 debian12
-    Scenario name maps to lab/scenarios/<name>.sh.
+    Run scenarios through the lab runner and print the report path.
+      vscen                      # every default scenario
+      vscen "beacon dns-exfil"   # just these
+      vscen "argv" debian12
   #>
-  param(
-    [Parameter(Mandatory)][string]$Scenario,
-    [string]$Grep = "",
-    [string]$Machine
-  )
+  param([string]$Scenarios = "", [string]$Machine)
   $m = Get-LabMachine $Machine
-  $grepStep = if ($Grep) { "grep $Grep /tmp/a || echo '(no match for $Grep)'" } else { "cat /tmp/a" }
-  Invoke-LabRemote $m @"
-cd /synthaea/agent
-sudo env RUST_LOG=sensor_linux=info ./target/release/agent run --alerts /tmp/a --events /tmp/e &
-sleep 4
-bash ../lab/scenarios/$Scenario.sh
-sleep 2
-sudo pkill -f 'agent run' || true
-$grepStep
-"@
+  Invoke-LabRemote $m "bash /synthaea/rig/runner/run-scenarios.sh --machine $m $Scenarios"
 }
 
 Write-Host "lab helpers loaded: vprep vup vsync vssh vhalt vreset vbuild vstatus vscen  (default machine: $LabMachine)" -ForegroundColor Green

@@ -1,2 +1,9 @@
+# Vagrant's per-checkout machine state (VM ids, generated SSH keys): never committed.
 .vagrant/
 .DS_Store
+# Offline build bundles (tools/offline_bundle.py).
+/.offline/
+# Scenario run reports (runner/run-scenarios.sh, fetched by `python rig.py run`): local by default.
+# Keep one as evidence with `git add -f reports/<file>` and cite it from MATRIX.md.
+/reports/*
+!/reports/README.md

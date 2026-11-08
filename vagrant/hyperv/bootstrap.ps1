@@ -46,6 +46,5 @@ if (Get-VMSwitch -ErrorAction SilentlyContinue | Where-Object Name -eq "Default 
   Write-Host "No 'Default Switch' -- normally auto-created by Hyper-V; a reboot after step 1 restores it." -ForegroundColor Yellow
 }
 
-Write-Host "`nNext: new elevated shell -> cd here ->" -ForegroundColor Green
-Write-Host ('  $env:VAGRANT_HYPERV_SWITCH = "Default Switch"') -ForegroundColor Green
-Write-Host "  vagrant up ubuntu2204 --provider hyperv" -ForegroundColor Green
+Write-Host "`nNext, in a new elevated shell in the rig checkout:" -ForegroundColor Green
+Write-Host "  python rig.py up ubuntu2204        (or: cd rig\vagrant; vagrant up ubuntu2204 --provider hyperv)" -ForegroundColor Green

@@ -1,9 +1,13 @@
 # RUNBOOK — PR #155 validation (issue #152 argv + #53 lineage non-regression)
 
-Runs the Debian-family x86_64 rows of `../MATRIX.md` on this Hyper-V harness:
+> Historical (2026-09): the Hyper-V run that validated PR #155, kept for its measurements.
+> For a new run use `python rig.py up`, `python rig.py build`, `python rig.py run` (`README.md`); the
+> `vprep`/`vup` helpers below still work from `rig\vagrant\hyperv\helpers.ps1`.
+
+Runs the Debian-family x86_64 rows of `../../MATRIX.md` on this Hyper-V harness:
 `ubuntu2204` (5.15 — strictest verifier) and `debian12` (6.1). One VM at a time
 on a 16 GB host. The 6.8 / 6.12 rows have no ready Hyper-V box — see
-[README.md](README.md) "Missing boxes".
+[../README.md](../README.md).
 
 All `vagrant` commands run from an **elevated PowerShell** in this directory.
 
@@ -12,7 +16,7 @@ All `vagrant` commands run from an **elevated PowerShell** in this directory.
 ## 0. Once per host
 
 ```powershell
-cd lab\vagrant-hyperv
+cd rig\vagrant\hyperv
 .\bootstrap.ps1            # Hyper-V feature + admin group + Vagrant + Default Switch
 . .\helpers.ps1           # dot-source the vprep/vup/vssh/... shortcuts
 ```
@@ -38,7 +42,7 @@ vssh MACHINE 'getent hosts static.rust-lang.org >/dev/null && echo "DNS ok"'
 
 # the repo is already at /synthaea (rsynced at boot); run the validator in place.
 # first run on a fresh VM is a cold build — several minutes, no output until done.
-vssh MACHINE 'bash /synthaea/lab/validate-155.sh'
+vssh MACHINE 'bash /synthaea/rig/validate-155.sh'
 ```
 
 Expected tail: `[PASS] kernel <x> — argv (#152/#155) + lineage (#53)`.
@@ -57,7 +61,7 @@ Then repeat block **1** with the other `MACHINE`.
 
 ```powershell
 vsync MACHINE
-vssh MACHINE 'bash /synthaea/lab/validate-155.sh'
+vssh MACHINE 'bash /synthaea/rig/validate-155.sh'
 ```
 
 Uncommitted host changes are included — `vsync` sends the working tree, not `HEAD`.
@@ -68,10 +72,10 @@ Uncommitted host changes are included — `vsync` sends the working tree, not `H
 
 ```powershell
 # toolchain sanity in one shot
-vssh MACHINE 'bash /synthaea/lab/diag.sh'
+vssh MACHINE 'bash /synthaea/rig/diag.sh'
 
 # lint gate (same checks as CI, without spending the CI budget)
-vssh MACHINE 'bash /synthaea/lab/lint.sh'
+vssh MACHINE 'bash /synthaea/rig/lint.sh'
 
 # eBPF probe build alone, full output
 vssh MACHINE 'cd /synthaea && cargo build --release -p sensor-linux 2>&1 | tail -40'
@@ -89,7 +93,7 @@ Restart-Service hns
 # and drop any host VPN (WireGuard/OpenVPN) for the duration of the lab
 ```
 
-Classic eBPF build failures (see `../provisioning/linux-toolchain.sh`):
+Classic eBPF build failures (see `agent/toolchain/linux-toolchain.sh`):
 
 | Symptom | Fix |
 | --- | --- |
@@ -108,7 +112,7 @@ Classic eBPF build failures (see `../provisioning/linux-toolchain.sh`):
   `vagrant ssh -c`.
 - **CRLF.** Handled by `/.gitattributes` (`*.sh eol=lf`) — scripts reach the VM
   as LF. If you add a `.sh` on a machine with a broken git config, check
-  `file lab/…/x.sh` before blaming the sensor.
+  `file rig/…/x.sh` before blaming the sensor.
 - **Truncated scenario console.** PowerShell drops interleaved stdout; trust the
   `grep` on the `--alerts` / `--events` files, not the screen. `validate-155.sh`
   already asserts on the files.
@@ -122,13 +126,13 @@ Classic eBPF build failures (see `../provisioning/linux-toolchain.sh`):
 ## 5. 6.8 / 6.12 — no ready Hyper-V box
 
 `ubuntu2404` (6.8) and `debian13` (6.12): neither `generic/*` nor `bento/*`
-ships a Hyper-V box. Options (see [README.md](README.md) "Missing boxes"):
+ships a Hyper-V box. Options (see [../README.md](../README.md)):
 
 - add `"ubuntu2404" => { box: "boxen/ubuntu-24.04" }` to `LINUX_MACHINES` in
   the [Vagrantfile](Vagrantfile) (third-party box, low download count — your call);
 - build one from the official cloud image (`qemu-img convert -O vhdx` + a
   `vagrant` user + the insecure key + `vagrant box add`) — ~an evening;
-- or delegate those two rows to the arm64 `../vagrant` harness.
+- or delegate those two rows to the arm64 QEMU provider (Apple Silicon).
 
 5.15 is the strictest verifier of the four, so `ubuntu2204` + `debian12` catch
 most kernel-portability regressions on their own.

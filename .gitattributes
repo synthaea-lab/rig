@@ -1,4 +1,3 @@
-# Split from the synthaea-lab/edr monorepo's root .gitattributes; see its history for the incidents.
 # Shell scripts are rsynced verbatim into Linux guests: a lone \r breaks every command.
 *.sh   text eol=lf
 *.bash text eol=lf
@@ -6,6 +5,7 @@
 *.bat  text eol=crlf
 *.cmd  text eol=crlf
 
-# Scenario sidecars are content-hashed (ADR-0009 scenario_yaml_sha256): CRLF would
-# silently invalidate every model record bound to them.
-scenarios/*.yaml text eol=lf
+# Read inside Linux guests too (runner catalog, machine catalog, Vagrantfile).
+*.conf      text eol=lf
+*.json      text eol=lf
+Vagrantfile text eol=lf
