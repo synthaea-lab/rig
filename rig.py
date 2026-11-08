@@ -216,7 +216,8 @@ def cmd_down(name: str, destroy: bool) -> None:
 
 
 def cmd_check() -> None:
-    """What CI can check without a VM: scripts parse, the catalogs match the scenarios."""
+    """What CI can check without a VM: scripts parse, the catalogs match the scenarios,
+    validate-windows-admin.ps1 loads its scenarios sibling."""
     bash = shutil.which("bash")
     if not bash:
         raise RigError("bash is needed for the checks (Git for Windows ships one)")
@@ -231,6 +232,21 @@ def cmd_check() -> None:
                        cwd=RIG, check=True)
     else:
         print(f"skipped: no {scenarios} for the runner catalog check")
+    check_admin_validation_loads_common()
+
+
+def check_admin_validation_loads_common() -> None:
+    """validate-windows-admin.ps1 resolves and loads ROOT/scenarios/scenarios/common.ps1."""
+    pwsh = shutil.which("pwsh")
+    if not pwsh:
+        print("skipped: no pwsh for the validate-windows-admin.ps1 sibling-path check")
+        return
+    if not (ROOT / "scenarios").is_dir():
+        print(f"skipped: no {ROOT / 'scenarios'} for the validate-windows-admin.ps1 sibling-path check")
+        return
+    subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-File",
+                    str(RIG / "tests" / "validate-windows-admin-resolves-siblings.ps1"), "-Root", str(ROOT)],
+                   cwd=RIG, check=True)
 
 
 def main() -> int:
