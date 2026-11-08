@@ -2,7 +2,7 @@
 #
 # Sibling of ../vagrant (QEMU on Apple Silicon). Same machine matrix
 # (../MATRIX.md), same provider-neutral provisioning scripts (per-family:
-# ../provisioning/linux-toolchain.sh for apt/dnf, arch-toolchain.sh for
+# ../../agent/toolchain/linux-toolchain.sh for apt/dnf, arch-toolchain.sh for
 # pacman). x86_64 rows only — see README.md for the box situation.
 #
 #   # from an ELEVATED PowerShell (the Hyper-V provider requires it):
@@ -39,7 +39,7 @@ LINUX_MACHINES = {
   "debian12"   => { box: "generic/debian12" },                  # 6.1  — Debian stable
   "ubuntu2404" => { box: "jtarpley/ubuntu2404_base" },          # 6.8  — current LTS
   "debian13"   => { box: "shekeriev/debian-13" },               # 6.12 — Debian trixie
-  "arch"       => { box: "generic/arch", provision: "../provisioning/arch-toolchain.sh" }, # rolling — #124
+  "arch"       => { box: "generic/arch", provision: "../../agent/toolchain/arch-toolchain.sh" }, # rolling — #124
   # RPM family, SELinux Enforcing out of the box — deliberately left that way
   # (no `setenforce 0` in provisioning): this is the row that runs the eBPF/LSM/
   # audit sensors under a real RHEL-family security policy. The box ships the
@@ -130,7 +130,7 @@ Vagrant.configure("2") do |config|
       # Provider-neutral, shared by every harness. Debian/RPM machines use the
       # apt/dnf script; a machine on a different package manager (pacman,
       # apk) names its own companion script via `provision:`.
-      m.vm.provision "shell", path: opts[:provision] || "../provisioning/linux-toolchain.sh", privileged: false
+      m.vm.provision "shell", path: opts[:provision] || "../../agent/toolchain/linux-toolchain.sh", privileged: false
     end
   end
 end

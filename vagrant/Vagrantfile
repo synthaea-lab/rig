@@ -13,11 +13,11 @@
 # auto-allocate, each machine needs a unique host port), RAM].
 LINUX_MACHINES = {
   "ubuntu2404" => { box: "perk/ubuntu-24.04-arm64", ssh_port: 50022, primary: true },
-  "ubuntu2204" => { box: "perk/ubuntu-2204-arm64",  ssh_port: 50122 },
-  "debian12"   => { box: "cloud-image/debian-12",   ssh_port: 50222 },
+  "ubuntu2204" => { box: "perk/ubuntu-2204-arm64",  ssh_port: 50122, libvirt_box: "generic/ubuntu2204" },
+  "debian12"   => { box: "cloud-image/debian-12",   ssh_port: 50222, libvirt_box: "generic/debian12" },
   "debian13"   => { box: "cloud-image/debian-13",   ssh_port: 50322 },
   "fedora41"   => { box: "fedora/41-cloud-base",    ssh_port: 50422 },
-  "rocky9"     => { box: "rockylinux/9",            ssh_port: 50522 },
+  "rocky9"     => { box: "rockylinux/9",            ssh_port: 50522, libvirt_box: "generic/rocky9" },
 }.freeze
 
 # Windows machines (amd64 — unusable under QEMU arm64, see README.md).
@@ -38,7 +38,7 @@ ALPINE_VIRTUALBOX_MACHINES = {
 }.freeze
 
 Vagrant.configure("2") do |config|
-  # The QEMU provider has no native file sharing: the repository root is
+  # The QEMU and libvirt providers get no native file sharing here: the umbrella is
   # pushed via rsync to /synthaea at `vagrant up` (push again afterwards
   # with `vagrant rsync <machine>`). Build artifacts stay inside the VM.
   # "../.." is the umbrella checkout (lab/<vagrant dir> -> lab -> umbrella).
@@ -50,6 +50,14 @@ Vagrant.configure("2") do |config|
       m.vm.box = opts[:box]
       m.vm.hostname = "synthaea-#{name}"
 
+      # Linux hosts with KVM: vagrant-libvirt, on the x86_64 `generic/*` box where one
+      # exists (the default boxes above are arm64 builds for the QEMU/HVF harness).
+      m.vm.provider "libvirt" do |lv, override|
+        override.vm.box = opts[:libvirt_box] if opts[:libvirt_box]
+        lv.memory = 6144
+        lv.cpus = 4
+      end
+
       m.vm.provider "qemu" do |qe|
         qe.memory = "4G"
         qe.smp = "4"
@@ -60,7 +68,7 @@ Vagrant.configure("2") do |config|
       end
 
       # Provisioning is provider-neutral and shared by every harness.
-      m.vm.provision "shell", path: "../provisioning/linux-toolchain.sh", privileged: false
+      m.vm.provision "shell", path: "../../agent/toolchain/linux-toolchain.sh", privileged: false
     end
   end
 
@@ -80,7 +88,7 @@ Vagrant.configure("2") do |config|
       # the MSVC/Windows SDK Build Tools the ETW/Event Log/SCM sensors need.
       # `agent-install.ps1` (also in ../provisioning/) is run separately, per
       # scenario, once a build exists — not part of one-time provisioning.
-      m.vm.provision "shell", path: "../provisioning/windows-toolchain.ps1"
+      m.vm.provision "shell", path: "../../agent/toolchain/windows-toolchain.ps1"
     end
   end
 
@@ -94,7 +102,7 @@ Vagrant.configure("2") do |config|
         vb.cpus = 4
       end
 
-      m.vm.provision "shell", path: "../provisioning/alpine-toolchain.sh", privileged: false
+      m.vm.provision "shell", path: "../../agent/toolchain/alpine-toolchain.sh", privileged: false
     end
   end
 end
