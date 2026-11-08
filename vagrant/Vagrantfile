@@ -41,8 +41,9 @@ Vagrant.configure("2") do |config|
   # The QEMU provider has no native file sharing: the repository root is
   # pushed via rsync to /synthaea at `vagrant up` (push again afterwards
   # with `vagrant rsync <machine>`). Build artifacts stay inside the VM.
+  # "../.." is the umbrella checkout (lab/<vagrant dir> -> lab -> umbrella).
   config.vm.synced_folder "../..", "/synthaea", type: "rsync",
-    rsync__exclude: [".git/", "target/", "old/", "ml/.venv/", "ml/datasets/"]
+    rsync__exclude: [".git/", "target/", "node_modules/", ".next/", "ml/.venv/", "ml/datasets/"]
 
   LINUX_MACHINES.each do |name, opts|
     config.vm.define name, primary: opts[:primary], autostart: !!opts[:primary] do |m|

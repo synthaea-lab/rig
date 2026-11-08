@@ -137,7 +137,7 @@ cd /synthaea && cargo build --release -p agent
 function vstatus {
   <# Verifier check: loads all sensor programs and reports (needs a prior vbuild). #>
   param([string]$Machine)
-  Invoke-LabRemote (Get-LabMachine $Machine) 'cd /synthaea && sudo ./target/release/agent status'
+  Invoke-LabRemote (Get-LabMachine $Machine) 'cd /synthaea/agent && sudo ./target/release/agent status'
 }
 
 function vscen {
@@ -155,10 +155,10 @@ function vscen {
   $m = Get-LabMachine $Machine
   $grepStep = if ($Grep) { "grep $Grep /tmp/a || echo '(no match for $Grep)'" } else { "cat /tmp/a" }
   Invoke-LabRemote $m @"
-cd /synthaea
+cd /synthaea/agent
 sudo env RUST_LOG=sensor_linux=info ./target/release/agent run --alerts /tmp/a --events /tmp/e &
 sleep 4
-bash lab/scenarios/$Scenario.sh
+bash ../lab/scenarios/$Scenario.sh
 sleep 2
 sudo pkill -f 'agent run' || true
 $grepStep

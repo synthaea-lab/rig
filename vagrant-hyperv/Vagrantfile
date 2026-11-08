@@ -94,8 +94,9 @@ Vagrant.configure("2") do |config|
   # No native Hyper-V file sharing without SMB creds; rsync the repo root to
   # /synthaea (needs an rsync on the host — Git for Windows ships one, or
   # `winget install cwRsync`). Same contract as ../vagrant.
+  # "../.." is the umbrella checkout (lab/<vagrant dir> -> lab -> umbrella).
   config.vm.synced_folder "../..", "/synthaea", type: "rsync",
-    rsync__exclude: [".git/", "target/", "old/", "ml/.venv/", "ml/datasets/"]
+    rsync__exclude: [".git/", "target/", "node_modules/", ".next/", "ml/.venv/", "ml/datasets/"]
 
   config.vm.boot_timeout = 600
   config.ssh.insert_key = true

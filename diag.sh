@@ -21,7 +21,7 @@ echo "=== /usr/local/bin symlinks (sudo's PATH) ==="
 ls -la /usr/local/bin/ | grep -E 'bpf|aya|bindgen' || echo "  none"
 echo
 echo "=== eBPF probe toolchain (LLVM major) ==="
-_ebpf_tc=$(tr -d '[:space:]' 2>/dev/null < "${SYNTHAEA_SRC:-/synthaea}/ebpf-toolchain.txt" || echo nightly)
+_ebpf_tc=$(tr -d '[:space:]' 2>/dev/null < "${SYNTHAEA_SRC:-/synthaea/agent}/ebpf-toolchain.txt" || echo nightly)
 echo "  (ebpf-toolchain.txt: $_ebpf_tc)"
 rustup toolchain list | grep -q "^$_ebpf_tc" || echo "  $_ebpf_tc not installed — rustup toolchain install $_ebpf_tc --profile minimal --component rust-src"
 rustup toolchain list | grep -q "^$_ebpf_tc" && { rustup run "$_ebpf_tc" rustc -Vv 2>&1 | grep -i llvm; }
@@ -34,5 +34,5 @@ llvm-config --version 2>&1 || echo "  no llvm-config"
 ls -d /usr/lib/llvm-* 2>/dev/null || echo "  no /usr/lib/llvm-*"
 echo
 echo "=== verbose probe build ==="
-cd /synthaea && cargo build --release -p sensor-linux 2>&1 \
+cd /synthaea/agent && cargo build --release -p sensor-linux 2>&1 \
   | grep -iE 'bpf-linker|error|warning: sensor-linux|embedded|Compiling sensor|Finished' | head -30

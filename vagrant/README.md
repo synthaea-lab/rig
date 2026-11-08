@@ -52,11 +52,11 @@ vagrant rsync ubuntu2404   # re-push the repo after host-side changes
 Each Linux machine has a dedicated host SSH port (50022, 50122, …) — the QEMU plugin
 does not auto-allocate, and distinct ports let several machines run in parallel.
 
-The repository root is rsynced one-way into each VM at `/synthaea` (excluding `.git/`,
+The umbrella checkout (synthaea-lab/edr with its submodules) is rsynced one-way into each VM at `/synthaea` (excluding `.git/`,
 `target/`, `old/`, ML venv/datasets). Build inside the VM:
 
 ```bash
-vagrant ssh ubuntu2404 -c 'cd /synthaea && cargo build --release -p agent'
+vagrant ssh ubuntu2404 -c 'cd /synthaea/agent && cargo build --release -p agent'
 ```
 
 Provisioning installs the family packages, rustup (stable + nightly + rust-src),

@@ -2,6 +2,12 @@
 
 Reproducible environment for validating detections and sensors end to end.
 
+Part of the Synthaea umbrella ([synthaea-lab/edr](https://github.com/synthaea-lab/edr)),
+checked out at `<umbrella>/lab`. The VM harnesses sync the **umbrella** root to
+`/synthaea`; in-VM scripts build in `/synthaea/agent` and reach scenarios as
+`../lab/scenarios`. The toolchain and ONNX Runtime build scripts that used to live in
+`provisioning/` moved to the agent repo (`agent/toolchain/`).
+
 The lab is defined **provider-neutrally**: the machine matrix (which OS/kernel
 combinations must be tested and why) and the provisioning scripts are shared; how the
 VMs are created is a per-developer choice. Vagrant+QEMU on macOS is the first harness —

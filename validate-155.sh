@@ -10,7 +10,7 @@
 # strictest verifier, 6.1 (debian12) the Debian baseline. See
 # lab/vagrant-hyperv/RUNBOOK-155.md for the full host-side loop.
 set -uo pipefail
-cd /synthaea
+cd /synthaea/agent   # the umbrella syncs to /synthaea; cargo runs in the agent repo
 # shellcheck disable=SC1091
 source "$HOME/.cargo/env"
 
@@ -52,7 +52,7 @@ run_scenario() {   # $1 = scenario base name under lab/scenarios/
   sleep 6
   pgrep -f "target/release/agent run" >/dev/null \
     || { tail -30 "$L" | sed 's/^/    /'; fail "agent exited early running $s on $KREL"; }
-  bash "lab/scenarios/$s.sh" >/dev/null 2>&1 || true
+  bash "../lab/scenarios/$s.sh" >/dev/null 2>&1 || true
   sleep 2
   sudo pkill -f "target/release/agent run" 2>/dev/null || true
   sleep 1

@@ -8,7 +8,7 @@
 # Mirrors `.github/workflows/ci.yml`: fmt + clippy (`-D warnings`, workspace
 # minus the bpfel-target ebpf crate) + fmt on the ebpf crate on its own.
 set -uo pipefail
-cd /synthaea
+cd /synthaea/agent   # the umbrella syncs to /synthaea; cargo runs in the agent repo
 # shellcheck disable=SC1091
 source "$HOME/.cargo/env"
 
