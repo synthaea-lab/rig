@@ -1,0 +1,20 @@
+# A sidecar fixture for `python rig.py check`: both runners must read what the `# reads:` lines state.
+# reads: T1059|2|1
+# reads: T1071/T1041|1|0
+# reads: T1486|3|0
+# reads: RESPONSE-KILL|1|20
+# The documented shape, with each way of writing a technique and the defaults.
+name: defaults-and-quotes
+expected_detections:
+  - technique: "T1059"
+    rule: rule_spawn_connect   # crates/correlator/src/rules.rs
+    min_count: 2
+    tolerance: 1
+  - technique: 'T1071/T1041'
+  - technique: T1486   # unquoted, min_count and tolerance default to 1 and 0
+    min_count: 3   # ITERATIONS=3 in the script
+  # a comment line inside the block
+  - technique: "RESPONSE-KILL"
+    tolerance: 20   # unbounded by design, see notes
+notes: >
+  A key after the block ends it: technique: T9999 here is not an expectation.

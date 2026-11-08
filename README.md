@@ -281,7 +281,9 @@ README). The rig never edits a sidecar: ML model records bind to their exact byt
    `default` if it is safe and self-contained, `opt-in` with a note saying what setup it
    needs otherwise; root, needed commands/LSMs, oldest kernel, extra agent flags or env,
    extra YARA files, settle time.
-3. `python rig.py check` checks the catalog covers every scenario and every sidecar parses.
+3. `python rig.py check` checks the catalog covers every scenario and every sidecar parses,
+   and (where pwsh exists) that `run-scenarios.ps1` reads every sidecar as `run-scenarios.sh`
+   does. A sidecar shape the runners should handle gets a fixture in `tests/sidecars/`.
 4. `python rig.py run <m> <name>` to see it on a VM; the report says PASS or why not.
 
 ## Adding a machine

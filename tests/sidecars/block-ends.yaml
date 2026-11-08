@@ -1,0 +1,11 @@
+# A sidecar fixture for `python rig.py check`: both runners must read what the `# reads:` lines state.
+# reads: T1110|1|0
+name: block-ends
+description: a key before the block is not read
+technique: T0000
+expected_detections:
+  - technique: "T1110"
+    min_count: 1
+    tolerance: 0
+platforms:
+  - technique: T8888

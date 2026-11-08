@@ -1,0 +1,4 @@
+# A sidecar fixture for `python rig.py check`: both runners must read what the `# reads:` lines state.
+# reads nothing: no expectation, so the runners expect no alert.
+name: no-detections
+notes: no expected_detections block at all

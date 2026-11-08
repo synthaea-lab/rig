@@ -217,7 +217,8 @@ def cmd_down(name: str, destroy: bool) -> None:
 
 def cmd_check() -> None:
     """What CI can check without a VM: scripts parse, the catalogs match the scenarios,
-    validate-windows-admin.ps1 loads its scenarios sibling."""
+    the two runners read the sidecars alike, validate-windows-admin.ps1 loads its
+    scenarios sibling."""
     bash = shutil.which("bash")
     if not bash:
         raise RigError("bash is needed for the checks (Git for Windows ships one)")
@@ -232,7 +233,59 @@ def cmd_check() -> None:
                        cwd=RIG, check=True)
     else:
         print(f"skipped: no {scenarios} for the runner catalog check")
+    check_runners_read_sidecars_alike(bash, scenarios)
     check_admin_validation_loads_common()
+
+
+SIDECAR_FIXTURES = RIG / "tests" / "sidecars"
+
+
+def check_runners_read_sidecars_alike(bash: str, scenarios: Path) -> None:
+    """run-scenarios.sh and run-scenarios.ps1 each parse the sidecars' expected_detections
+    (Linux guests have no pwsh, Windows guests no bash). The bash parser must read what each
+    fixture in tests/sidecars states in its `# reads:` lines; where pwsh exists, the
+    PowerShell parser must read the same as the bash one from the fixtures and every sidecar."""
+    fixtures = sorted(SIDECAR_FIXTURES.glob("*.yaml"))
+    sidecars = fixtures + (sorted(scenarios.glob("*.yaml")) if scenarios.is_dir() else [])
+    from_bash = {sidecar: bash_expectations(bash, sidecar) for sidecar in sidecars}
+    wrong = [f"  {fixture.name}: reads {from_bash[fixture]}, states {stated_expectations(fixture)}"
+             for fixture in fixtures if from_bash[fixture] != stated_expectations(fixture)]
+    if wrong:
+        raise RigError("run-scenarios.sh misreads these sidecar fixtures:\n" + "\n".join(wrong))
+    print(f"runners: run-scenarios.sh reads the {len(fixtures)} sidecar fixtures as stated", flush=True)
+    pwsh = shutil.which("pwsh")
+    if not pwsh:
+        print("skipped: no pwsh for the bash/PowerShell sidecar parser parity check")
+        return
+    from_pwsh = powershell_expectations(pwsh, sidecars)
+    drift = [f"  {sidecar.name}: bash {from_bash[sidecar]} vs PowerShell {from_pwsh[sidecar]}"
+             for sidecar in sidecars if from_bash[sidecar] != from_pwsh[sidecar]]
+    if drift:
+        raise RigError("the runners read these sidecars differently:\n" + "\n".join(drift))
+    print(f"runners: bash and PowerShell read {len(sidecars)} sidecars alike", flush=True)
+
+
+def stated_expectations(fixture: Path) -> list[str]:
+    """The `technique|min_count|tolerance` lines a fixture states with `# reads: ...`."""
+    prefix = "# reads: "
+    return [line[len(prefix):].strip() for line in fixture.read_text(encoding="utf-8").splitlines()
+            if line.startswith(prefix)]
+
+
+def bash_expectations(bash: str, sidecar: Path) -> list[str]:
+    return subprocess.run([bash, "runner/run-scenarios.sh", "--expectations", sidecar.as_posix()],
+                          cwd=RIG, check=True, stdout=subprocess.PIPE, encoding="utf-8").stdout.splitlines()
+
+
+def powershell_expectations(pwsh: str, sidecars: list[Path]) -> dict[Path, list[str]]:
+    out = subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-File",
+                          str(RIG / "tests" / "print-ps-expectations.ps1"), *map(str, sidecars)],
+                         cwd=RIG, check=True, stdout=subprocess.PIPE, encoding="utf-8").stdout
+    read: dict[Path, list[str]] = {sidecar: [] for sidecar in sidecars}
+    for line in out.splitlines():
+        path, expectation = line.split("|", 1)
+        read[Path(path)].append(expectation)
+    return read
 
 
 def check_admin_validation_loads_common() -> None:

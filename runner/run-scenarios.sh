@@ -17,6 +17,9 @@
 #   --list            print the catalog with each scenario's expectations, run nothing
 #   --check           validate the catalog against the scenarios directory, run nothing
 #                     (works on any host with bash: `just test lab` runs it)
+#   --expectations F  print `technique|min_count|tolerance` per expected detection of the
+#                     sidecar F, run nothing (`python rig.py check` compares it with the
+#                     PowerShell runner's parser)
 #   --machine NAME    machine name for the report (default: the hostname)
 #   --scenarios DIR   scenarios directory (default: $SYNTHAEA_ROOT/scenarios/scenarios)
 #
@@ -52,6 +55,7 @@ while [ $# -gt 0 ]; do
   case $1 in
     --list) MODE=list ;;
     --check) MODE=check ;;
+    --expectations) MODE=expectations; SIDECAR=${2:?}; shift ;;
     --machine) MACHINE=${2:?}; shift ;;
     --scenarios) SCEN_DIR=${2:?}; shift ;;
     -h|--help) sed -n '2,/^set -uo/p' "$0" | sed 's/^# \{0,1\}//;/^set -uo/d'; exit 0 ;;
@@ -125,6 +129,7 @@ check() {
 }
 
 if [ "$MODE" = check ]; then check; exit; fi
+if [ "$MODE" = expectations ]; then expectations "$SIDECAR"; exit; fi
 if [ "$MODE" = list ]; then
   printf '%-24s %-8s %s\n' SCENARIO SET EXPECTED
   for n in "${ORDER[@]}"; do
