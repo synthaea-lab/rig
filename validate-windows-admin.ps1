@@ -50,12 +50,16 @@
 
 .NOTES
     Run from an elevated Windows PowerShell 5.1+ prompt, with no other agent
-    running. For the full validation, build agent.exe first:
-        cargo build --release -p agent        (from the branch under test)
-        powershell -ExecutionPolicy Bypass -File rig\validate-windows-admin.ps1
+    running. The script expects the sibling checkouts under -Root (default:
+    the parent of this script's directory, C:\synthaea in the lab VMs):
+    agent\ (phases F and G run cargo test there; agent.exe defaults to its
+    target\release) and scenarios\ (for scenarios\common.ps1). For the full
+    validation, build agent.exe first:
+        cd C:\synthaea\agent; cargo build --release -p agent   (the branch under test)
+        powershell -ExecutionPolicy Bypass -File C:\synthaea\rig\validate-windows-admin.ps1
 
     To run only the #708 ETW mask phase, skip the agent-dependent phases:
-        powershell -ExecutionPolicy Bypass -File rig\validate-windows-admin.ps1 -SkipOrphans -SkipRootCause -SkipLongPath -SkipMarkRemoval
+        powershell -ExecutionPolicy Bypass -File C:\synthaea\rig\validate-windows-admin.ps1 -SkipOrphans -SkipRootCause -SkipLongPath -SkipMarkRemoval
 
     About 6 minutes with the default -ProbeCounts, plus the short #708 ETW
     test. Stops only what it created plus `wtrace-` sessions, which are the
@@ -63,6 +67,7 @@
 #>
 [CmdletBinding()]
 param(
+    [string]$Root = "",
     [string]$AgentExe = "",
     [string]$OutDir = "",
     [int[]]$ProbeCounts = @(0, 2, 6, 7, 8),
@@ -77,16 +82,22 @@ param(
 
 # Defaults resolved here, not in param(): Windows PowerShell 5.1 leaves
 # $PSScriptRoot empty while it evaluates param() defaults.
-if (-not $AgentExe) { $AgentExe = Join-Path $PSScriptRoot "..\target\release\agent.exe" }
+if (-not $Root) { $Root = Split-Path -Parent $PSScriptRoot }
+$AgentDir = Join-Path $Root "agent"
+$CommonScript = Join-Path $Root "scenarios\scenarios\common.ps1"
+if (-not $AgentExe) { $AgentExe = Join-Path $AgentDir "target\release\agent.exe" }
 if (-not $OutDir) {
-    $OutDir = Join-Path $PSScriptRoot ("..\target\lab-validation\" + (Get-Date -Format "yyyyMMdd-HHmmss"))
+    $OutDir = Join-Path $AgentDir ("target\lab-validation\" + (Get-Date -Format "yyyyMMdd-HHmmss"))
 }
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
-. (Join-Path $PSScriptRoot "scenarios\common.ps1")
+if (-not (Test-Path -LiteralPath $CommonScript)) {
+    throw "$CommonScript not found - check out the scenarios repository next to rig, or pass -Root"
+}
+. $CommonScript
 
-# The agent's ETW providers (crates/sensors/windows/etw/src/providers.rs).
+# The agent's ETW providers (agent\crates\sensors\windows\etw\src\providers.rs).
 $AgentProviders = [ordered]@{
     "Kernel-Process"  = "22fb2cd6-0e7b-422b-a0c7-2fad1fd0e716"
     "Kernel-Network"  = "7dd42a49-5329-4832-8dfd-43d979153a88"
@@ -588,8 +599,7 @@ try {
         Write-Section "F. #708 Kernel-File keyword mask"
         $hadKernelFileMask = Test-Path Env:SYNTHAEA_KERNEL_FILE_MASK
         $previousKernelFileMask = $env:SYNTHAEA_KERNEL_FILE_MASK
-        $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-        Push-Location $repoRoot
+        Push-Location $AgentDir
         try {
             $positive = Invoke-KernelFileMaskTest "0x1480"
             $positiveTail = (($positive.Output -split "`r?`n") | Select-Object -Last 8) -join "; "
@@ -621,8 +631,7 @@ try {
         Write-Section "G. #726 Kernel-Process keyword mask"
         $hadKernelProcessMask = Test-Path Env:SYNTHAEA_KERNEL_PROCESS_MASK
         $previousKernelProcessMask = $env:SYNTHAEA_KERNEL_PROCESS_MASK
-        $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-        Push-Location $repoRoot
+        Push-Location $AgentDir
         try {
             $positive = Invoke-KernelProcessMaskTest "0x50"
             $positiveTail = (($positive.Output -split "`r?`n") | Select-Object -Last 8) -join "; "
