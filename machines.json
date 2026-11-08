@@ -1,11 +1,11 @@
 {
   "_doc": [
-    "The rig's one machine catalog, read by vagrant/Vagrantfile and rig.py. MATRIX.md says",
+    "The rig's one machine catalog, read by vagrant/Vagrantfile and rig.py. docs/machine-matrix.md says",
     "what each row proves; this file says how to boot it. One entry per machine; `boxes`",
     "maps a Vagrant provider to the box that provides the row on it (a provider without an",
     "entry cannot run that machine). Providers: libvirt (Linux hosts, x86_64), hyperv",
     "(Windows hosts), qemu (Apple Silicon hosts, arm64 guests), virtualbox (optional, any",
-    "x86_64 host). Fields: guest linux|windows; matrix = the MATRIX.md row; provision = the",
+    "x86_64 host). Fields: guest linux|windows; matrix = the docs/machine-matrix.md row; provision = the",
     "toolchain script, relative to the rig's root (the directory holding agent/); prep = box",
     "fix-ups from provisioning/, run before it (each detects whether its box needs it);",
     "qemu_ssh_port = the host port the QEMU plugin forwards (it cannot auto-allocate);",

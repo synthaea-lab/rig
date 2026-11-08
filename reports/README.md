@@ -5,5 +5,5 @@ Scenario run reports, `<date>-<machine>.md`, written by `../runner/run-scenarios
 [machine]` prints the newest.
 
 Gitignored: commit one only when it is evidence (a MATRIX row validated, a regression
-shown) with `git add -f reports/<file>`, and cite it from `../MATRIX.md`. What a report
+shown) with `git add -f reports/<file>`, and cite it from [`../docs/machine-matrix.md`](../docs/machine-matrix.md). What a report
 contains and what PASS/UNEXPECTED/FAIL/ERROR/SKIP mean: `../README.md`, "Reports".

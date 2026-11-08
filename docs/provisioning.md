@@ -1,7 +1,7 @@
 # provisioning — in-guest scripts
 
-What runs inside a lab VM besides the toolchain itself (which lives with the code it builds,
-in `agent/toolchain/`). Plain bash/sh/PowerShell with no harness assumptions: Vagrant runs
+The scripts in [`provisioning/`](../provisioning/): what runs inside a lab VM besides the
+toolchain itself (which lives with the code it builds, in `agent/toolchain/`). Plain bash/sh/PowerShell with no harness assumptions: Vagrant runs
 them (`../vagrant/Vagrantfile`), `rig.py build` runs them over
 `vagrant ssh`/`winrm`, and they work the same over a plain ssh session or cloud-init.
 Every script is idempotent.
@@ -15,7 +15,7 @@ Every script is idempotent.
 | `agent-build.ps1` | `python rig.py build` on Windows guests | the same for Windows: `cargo build --release -p agent` in `C:\synthaea\agent`, `C:\synthaea-rig\build-info` |
 | `agent-install.ps1` | by hand | installs an already-built agent + watchdog (+ `rules` content under `storage.state_dir\content`) into a Windows VM, optionally as the watchdog service — for the packaged-service path rather than the runner's standalone agent |
 | `fedora-test-setup.sh` | by hand | the Fedora VM setup for testing the static ONNX Runtime link (issue #110) |
-| `sysmon-adr0026.xml`, `sysmon-capture.md` | by hand | the Sysmon configuration and procedure behind ADR-0026's ETW/Sysmon comparison captures |
+| `sysmon-adr0026.xml` (procedure: [`sysmon-capture.md`](sysmon-capture.md)) | by hand | the Sysmon configuration and procedure behind ADR-0026's ETW/Sysmon comparison captures |
 
 ## Windows toolchain vs. Linux toolchain
 

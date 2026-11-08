@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Checks that validate-windows-admin.ps1 finds and loads the scenarios
+    Checks that runner/windows/validate-admin.ps1 finds and loads the scenarios
     sibling's common.ps1 under a given root, without running any phase.
 
 .DESCRIPTION
@@ -13,7 +13,7 @@
 #>
 param(
     [Parameter(Mandatory)][string]$Root,
-    [string]$Script = (Join-Path (Split-Path -Parent $PSScriptRoot) "validate-windows-admin.ps1")
+    [string]$Script = (Join-Path (Split-Path -Parent $PSScriptRoot) "runner/windows/validate-admin.ps1")
 )
 $ErrorActionPreference = "Stop"
 
@@ -40,13 +40,13 @@ $CommonScript = $null
 try {
     . $prologue
 } catch {
-    throw "validate-windows-admin.ps1 could not resolve and load common.ps1 under ${Root}: $_"
+    throw "runner/windows/validate-admin.ps1 could not resolve and load common.ps1 under ${Root}: $_"
 }
 
 if (-not $CommonScript -or -not (Test-Path -LiteralPath $CommonScript)) {
-    throw "validate-windows-admin.ps1 resolved common.ps1 to '$CommonScript', which does not exist under $Root"
+    throw "runner/windows/validate-admin.ps1 resolved common.ps1 to '$CommonScript', which does not exist under $Root"
 }
 $missing = @("Invoke-Native", "Invoke-NativeCleanup", "Get-FarFutureDate") |
     Where-Object { -not (Get-Command $_ -CommandType Function -ErrorAction SilentlyContinue) }
 if ($missing) { throw "common.ps1 loaded from $CommonScript does not define: $($missing -join ', ')" }
-Write-Output "validate-windows-admin.ps1: loads $CommonScript"
+Write-Output "runner/windows/validate-admin.ps1: loads $CommonScript"
