@@ -41,6 +41,8 @@ foreach ($line in Get-Content $catalog) {
   $rows[$c[0]] = [pscustomobject]@{ Set = $c[1]; Expect = $c[2]; Note = $c[3] }
 }
 
+# run-scenarios.sh has its own copy of the sidecar parser (expectations): `python rig.py check`
+# compares them.
 function Get-Expectations([string]$Name) {
   $yaml = Join-Path $scenDir "$Name.yaml"
   $out = @()
@@ -54,8 +56,8 @@ function Get-Expectations([string]$Name) {
       if ($l -match 'technique:\s*["'']?([^"'']+)["'']?\s*$') {
         if ($cur) { $out += $cur }
         $cur = [pscustomobject]@{ Technique = $Matches[1].Trim(); Min = 1; Tol = 0 }
-      } elseif ($l -match 'min_count:\s*(\d+)' -and $cur) { $cur.Min = [int]$Matches[1] }
-      elseif ($l -match 'tolerance:\s*(\d+)' -and $cur) { $cur.Tol = [int]$Matches[1] }
+      } elseif ($l -match 'min_count:\s*["'']?(\d+)' -and $cur) { $cur.Min = [int]$Matches[1] }
+      elseif ($l -match 'tolerance:\s*["'']?(\d+)' -and $cur) { $cur.Tol = [int]$Matches[1] }
     }
     if ($cur) { $out += $cur }
     return ,$out

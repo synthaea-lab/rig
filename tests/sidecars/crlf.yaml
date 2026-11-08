@@ -1,0 +1,8 @@
+# A sidecar fixture for `python rig.py check`: both runners must read what the `# reads:` lines state.
+# reads: T1059|2|1
+# Windows line endings (a checkout without the scenarios .gitattributes) read the same.
+name: crlf
+expected_detections:
+  - technique: "T1059"
+    min_count: 2
+    tolerance: 1

@@ -1,0 +1,16 @@
+# A sidecar fixture for `python rig.py check`: both runners must read what the `# reads:` lines state.
+# reads: T1059|2|3
+# reads: T1071|2|0
+# reads: T1486|1|0
+# Counts written as YAML strings are read as numbers; a count that is not a non-negative
+# integer reads as its leading digits, else the default.
+name: quoted-and-malformed-counts
+expected_detections:
+  - technique: "T1059"
+    min_count: "2"
+    tolerance: '3'
+  - technique: "T1071"
+    min_count: 2.5
+    tolerance: -1
+  - technique: "T1486"
+    min_count: many

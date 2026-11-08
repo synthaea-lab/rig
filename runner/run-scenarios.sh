@@ -84,17 +84,20 @@ done < "$CATALOG"
 
 # Prints `technique|min_count|tolerance` per expected detection of a sidecar. The sidecars
 # keep to the documented shape (synthaea-lab/scenarios README), which is all this reads.
+# run-scenarios.ps1 has its own copy (Get-Expectations): `python rig.py check` compares them.
 expectations() {
   awk '
+    function count(v, unset) { sub(/^["\047]/, "", v); return match(v, /^[0-9]+/) ? substr(v, 1, RLENGTH) + 0 : unset }
+    { sub(/\r$/, "") }
     /^expected_detections:/ { inb = 1; next }
-    inb && /^[^ \t#-]/      { inb = 0 }
+    inb && /^[^ \t#-]/      { exit }
     inb {
       line = $0; sub(/#.*/, "", line)
       if (match(line, /technique:[ \t]*/)) {
         if (t != "") print t "|" m "|" o
         t = substr(line, RSTART + RLENGTH); gsub(/^["\047]|["\047]?[ \t]*$/, "", t); m = 1; o = 0
-      } else if (match(line, /min_count:[ \t]*/)) { m = substr(line, RSTART + RLENGTH) + 0 }
-      else if (match(line, /tolerance:[ \t]*/))   { o = substr(line, RSTART + RLENGTH) + 0 }
+      } else if (match(line, /min_count:[ \t]*/)) { m = count(substr(line, RSTART + RLENGTH), m) }
+      else if (match(line, /tolerance:[ \t]*/))   { o = count(substr(line, RSTART + RLENGTH), o) }
     }
     END { if (t != "") print t "|" m "|" o }' "$1"
 }

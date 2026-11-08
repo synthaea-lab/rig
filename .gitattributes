@@ -9,3 +9,6 @@
 *.conf      text eol=lf
 *.json      text eol=lf
 Vagrantfile text eol=lf
+
+# A fixture of the runners' sidecar parsers that must keep Windows line endings.
+tests/sidecars/crlf.yaml text eol=crlf

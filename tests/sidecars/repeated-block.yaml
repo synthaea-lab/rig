@@ -1,0 +1,10 @@
+# A sidecar fixture for `python rig.py check`: both runners must read what the `# reads:` lines state.
+# reads: T1110|1|0
+# The block ends at the next top-level key, for good: a second expected_detections key
+# (invalid YAML, a duplicate key) is not read.
+name: repeated-block
+expected_detections:
+  - technique: "T1110"
+notes: first block ends here
+expected_detections:
+  - technique: "T9999"
