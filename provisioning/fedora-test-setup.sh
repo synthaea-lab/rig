@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-# lab/provisioning/ -> lab -> the umbrella; the agent repo builds ORT and the agent.
+# provisioning/ -> rig/ -> the root holding the agent checkout, which builds ORT and the agent.
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../agent" && pwd)"
 cd "$REPO_ROOT"
 

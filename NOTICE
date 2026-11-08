@@ -31,4 +31,4 @@ THIRD-PARTY SOFTWARE
 
 This repository vendors no third-party source code. Dependencies are fetched
 by the build tooling and remain under their own licenses; this repository holds
-lab harnesses, scenarios and captures written by the project's contributors.
+the testing rig (VM harness, provisioning, scenario runner) written by the project's contributors.
