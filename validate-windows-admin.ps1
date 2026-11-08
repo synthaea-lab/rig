@@ -52,10 +52,10 @@
     Run from an elevated Windows PowerShell 5.1+ prompt, with no other agent
     running. For the full validation, build agent.exe first:
         cargo build --release -p agent        (from the branch under test)
-        powershell -ExecutionPolicy Bypass -File lab\validate-windows-admin.ps1
+        powershell -ExecutionPolicy Bypass -File rig\validate-windows-admin.ps1
 
     To run only the #708 ETW mask phase, skip the agent-dependent phases:
-        powershell -ExecutionPolicy Bypass -File lab\validate-windows-admin.ps1 -SkipOrphans -SkipRootCause -SkipLongPath -SkipMarkRemoval
+        powershell -ExecutionPolicy Bypass -File rig\validate-windows-admin.ps1 -SkipOrphans -SkipRootCause -SkipLongPath -SkipMarkRemoval
 
     About 6 minutes with the default -ProbeCounts, plus the short #708 ETW
     test. Stops only what it created plus `wtrace-` sessions, which are the

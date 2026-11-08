@@ -1,0 +1,137 @@
+{
+  "_doc": [
+    "The rig's one machine catalog, read by vagrant/Vagrantfile and rig.py. MATRIX.md says",
+    "what each row proves; this file says how to boot it. One entry per machine; `boxes`",
+    "maps a Vagrant provider to the box that provides the row on it (a provider without an",
+    "entry cannot run that machine). Providers: libvirt (Linux hosts, x86_64), hyperv",
+    "(Windows hosts), qemu (Apple Silicon hosts, arm64 guests), virtualbox (optional, any",
+    "x86_64 host). Fields: guest linux|windows; matrix = the MATRIX.md row; provision = the",
+    "toolchain script, relative to the rig's root (the directory holding agent/); prep = box",
+    "fix-ups from provisioning/, run before it (each detects whether its box needs it);",
+    "qemu_ssh_port = the host port the QEMU plugin forwards (it cannot auto-allocate);",
+    "memory_mb overrides the default; notes = what to know before `up`."
+  ],
+  "defaults": {
+    "linux":   { "memory_mb": 6144, "provision": "agent/toolchain/linux-toolchain.sh" },
+    "windows": { "memory_mb": 8192, "provision": "agent/toolchain/windows-toolchain.ps1" }
+  },
+  "machines": {
+    "ubuntu2404": {
+      "guest": "linux", "matrix": "ubuntu-24.04", "primary": true,
+      "boxes": {
+        "libvirt": "cloud-image/ubuntu-24.04",
+        "hyperv": "jtarpley/ubuntu2404_base",
+        "qemu": "perk/ubuntu-24.04-arm64",
+        "virtualbox": "cloud-image/ubuntu-24.04"
+      },
+      "qemu_ssh_port": 50022,
+      "notes": "hyperv box boots an Azure 6.17 kernel and has a 1 GB /home: see vagrant/README.md 'ubuntu2404 on Hyper-V'."
+    },
+    "ubuntu2204": {
+      "guest": "linux", "matrix": "ubuntu-22.04",
+      "boxes": {
+        "libvirt": "generic/ubuntu2204",
+        "hyperv": "generic/ubuntu2204",
+        "qemu": "perk/ubuntu-2204-arm64",
+        "virtualbox": "generic/ubuntu2204"
+      },
+      "qemu_ssh_port": 50122,
+      "notes": "glibc 2.35 / GCC 12: the prebuilt ONNX Runtime does not link, see README.md 'ONNX Runtime on older distros'."
+    },
+    "debian12": {
+      "guest": "linux", "matrix": "debian-12",
+      "boxes": {
+        "libvirt": "generic/debian12",
+        "hyperv": "generic/debian12",
+        "qemu": "cloud-image/debian-12",
+        "virtualbox": "generic/debian12"
+      },
+      "qemu_ssh_port": 50222,
+      "notes": "glibc 2.36 / GCC 12: the prebuilt ONNX Runtime does not link, see README.md 'ONNX Runtime on older distros'."
+    },
+    "debian13": {
+      "guest": "linux", "matrix": "debian-13",
+      "boxes": {
+        "libvirt": "cloud-image/debian-13",
+        "hyperv": "shekeriev/debian-13",
+        "qemu": "cloud-image/debian-13",
+        "virtualbox": "cloud-image/debian-13"
+      },
+      "qemu_ssh_port": 50322,
+      "notes": "hyperv box ships without rsync: see vagrant/README.md 'debian13 on Hyper-V'."
+    },
+    "fedora41": {
+      "guest": "linux", "matrix": "fedora-41",
+      "boxes": {
+        "libvirt": "fedora/41-cloud-base",
+        "hyperv": "jtarpley/fedora41_base",
+        "qemu": "fedora/41-cloud-base",
+        "virtualbox": "fedora/41-cloud-base"
+      },
+      "prep": ["fedora-lvm-prep.sh"],
+      "qemu_ssh_port": 50422,
+      "notes": "SELinux Enforcing on purpose. hyperv box: small LVM volumes, toolchain and target live under /var/synthaea."
+    },
+    "rocky9": {
+      "guest": "linux", "matrix": "rocky-9",
+      "boxes": {
+        "libvirt": "generic/rocky9",
+        "hyperv": "generic/rocky9",
+        "qemu": "rockylinux/9",
+        "virtualbox": "rockylinux/9"
+      },
+      "qemu_ssh_port": 50522,
+      "notes": "Replay-only row: no LLVM recent enough for the probes, and glibc 2.34 cannot link the prebuilt ONNX Runtime."
+    },
+    "arch": {
+      "guest": "linux", "matrix": "arch (rolling)",
+      "provision": "agent/toolchain/arch-toolchain.sh",
+      "boxes": {
+        "libvirt": "generic/arch",
+        "hyperv": "generic/arch",
+        "virtualbox": "generic/arch"
+      },
+      "notes": "x86_64 only. A rolling target: run `sudo pacman -Syu` after `up` for the current kernel."
+    },
+    "alpine319": {
+      "guest": "linux", "matrix": "alpine-3.24",
+      "provision": "agent/toolchain/alpine-toolchain.sh",
+      "memory_mb": 4096,
+      "boxes": {
+        "libvirt": "generic/alpine319",
+        "hyperv": "generic/alpine319",
+        "qemu": "generic/alpine319",
+        "virtualbox": "generic/alpine319"
+      },
+      "qemu_ssh_port": 50622,
+      "notes": "Alpine 3.19 / 6.6 (the newest generic box), standing in for the 3.24 row's musl/BusyBox coverage. No prebuilt ONNX Runtime for musl: build with --ort static."
+    },
+    "win11": {
+      "guest": "windows", "matrix": "windows-11 / windows-10",
+      "boxes": {
+        "libvirt": "gusztavvargadr/windows-11",
+        "hyperv": "gusztavvargadr/windows-11",
+        "virtualbox": "gusztavvargadr/windows-11"
+      },
+      "notes": "WinRM. No synced folder: `rig.py build` uploads the sources."
+    },
+    "win10": {
+      "guest": "windows", "matrix": "windows-11 / windows-10",
+      "boxes": {
+        "libvirt": "gusztavvargadr/windows-10",
+        "hyperv": "gusztavvargadr/windows-10",
+        "virtualbox": "gusztavvargadr/windows-10"
+      },
+      "notes": "WinRM. No synced folder: `rig.py build` uploads the sources."
+    },
+    "winserver": {
+      "guest": "windows", "matrix": "windows-server",
+      "boxes": {
+        "libvirt": "gusztavvargadr/windows-server",
+        "hyperv": "gusztavvargadr/windows-server",
+        "virtualbox": "gusztavvargadr/windows-server"
+      },
+      "notes": "WinRM. No synced folder: `rig.py build` uploads the sources."
+    }
+  }
+}

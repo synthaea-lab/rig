@@ -4,13 +4,13 @@
 # kernel this VM happens to run. Prints [PASS] or exits non-zero on the first
 # failed assertion.
 #
-#   vssh ubuntu2204 'bash /synthaea/lab/validate-155.sh'
+#   vssh ubuntu2204 'bash /synthaea/rig/validate-155.sh'
 #
-# Repeat across the Linux rows of lab/MATRIX.md — 5.15 (ubuntu2204) is the
+# Repeat across the Linux rows of MATRIX.md — 5.15 (ubuntu2204) is the
 # strictest verifier, 6.1 (debian12) the Debian baseline. See
-# lab/vagrant-hyperv/RUNBOOK-155.md for the full host-side loop.
+# vagrant/hyperv/RUNBOOK-155.md for the full host-side loop.
 set -uo pipefail
-cd /synthaea/agent   # the umbrella syncs to /synthaea; cargo runs in the agent repo
+cd /synthaea/agent   # rig.py syncs the agent checkout to /synthaea/agent
 # shellcheck disable=SC1091
 source "$HOME/.cargo/env"
 
@@ -43,7 +43,7 @@ cargo test -p sensor-linux -p sensor-linux-wire 2>&1 | grep -E 'running [0-9]+ t
   || fail "unit tests failed on $KREL"
 
 # --- scenario runner -------------------------------------------------------
-run_scenario() {   # $1 = scenario base name under lab/scenarios/
+run_scenario() {   # $1 = scenario base name under scenarios/scenarios/
   local s="$1"
   A="/tmp/v155-$s-a"; E="/tmp/v155-$s-e"; L="/tmp/v155-$s.log"
   sudo rm -f "$A" "$E"
@@ -52,7 +52,7 @@ run_scenario() {   # $1 = scenario base name under lab/scenarios/
   sleep 6
   pgrep -f "target/release/agent run" >/dev/null \
     || { tail -30 "$L" | sed 's/^/    /'; fail "agent exited early running $s on $KREL"; }
-  bash "../lab/scenarios/$s.sh" >/dev/null 2>&1 || true
+  bash "../scenarios/scenarios/$s.sh" >/dev/null 2>&1 || true
   sleep 2
   sudo pkill -f "target/release/agent run" 2>/dev/null || true
   sleep 1

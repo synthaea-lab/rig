@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Runs INSIDE the fedora41 VM (repo in /synthaea, build in /var/synthaea/target); see
-# lab/vagrant-hyperv/README.md to bring the VM up and put the checkout in /synthaea.
+# vagrant/README.md to bring the VM up and put the checkout in /synthaea.
 # #652: the kill gate refuses a system service's main process (image under a trusted
 # path, ppid 1), still kills the implant.
 #
-# Scenarios B and C's beacon is `lab/scenarios/v652-beacon.rs`, a compiled binary installed to
+# Scenarios B and C's beacon is `scenarios/scenarios/v652-beacon.rs`, a compiled binary installed to
 # /usr/libexec/v652-beacon (old-dov, 2026-10-20): `204b5ff` made `service_main_path_is_trusted`
 # exclude shells and interpreters, so a `bash -c '...'` unit main (what this script used before)
 # is no longer a protected service main at all — B and C would stop testing the refusal this PR
@@ -13,7 +13,7 @@
 #   B  enforce, same beacon as a systemd-run unit (v652-beacon, ppid 1) -> survives, "refused to kill"
 #   C  observe, same unit                                               -> survives, "refused" not "would have"
 set -uo pipefail
-cd /synthaea/agent   # the umbrella syncs to /synthaea; cargo runs in the agent repo
+cd /synthaea/agent   # rig.py syncs the agent checkout to /synthaea/agent
 [ -f "$HOME/.cargo/env" ] && source "$HOME/.cargo/env"
 export CARGO_TARGET_DIR=/var/synthaea/target
 BIN=$CARGO_TARGET_DIR/release/agent
@@ -27,7 +27,7 @@ echo "== build =="; cargo build --release -p agent 2>&1 | tail -2
 [ -x "$BIN" ] || { echo "[FAIL] no agent binary"; exit 1; }
 sudo mkdir -p /etc/synthaea; sudo cp crates/config/data/default-agent.toml /etc/synthaea/agent.toml
 
-echo "== build beacon =="; rustc -O -o /tmp/v652-beacon ../lab/scenarios/v652-beacon.rs
+echo "== build beacon =="; rustc -O -o /tmp/v652-beacon ../scenarios/scenarios/v652-beacon.rs
 sudo install -m 0755 /tmp/v652-beacon /usr/libexec/v652-beacon
 [ -x /usr/libexec/v652-beacon ] || { echo "[FAIL] no beacon binary"; exit 1; }
 
@@ -52,7 +52,7 @@ unlisten() { kill -- -"$LPID" 2>/dev/null; sudo pkill -f "nc -l" 2>/dev/null; }
 
 echo "== A: enforce, implant from a shell =="
 start_agent A --enable-kill --enable-quarantine && {
-  EXPECT=enforce bash ../lab/scenarios/response.sh > "$W/A.script" 2>&1; grep -E "^implant exit|^payload" "$W/A.script"; grep -q "killed: yes" "$W/A.script" && pass "A: implant SIGKILLed" || fail "A: implant not killed"; true
+  EXPECT=enforce bash ../scenarios/scenarios/response.sh > "$W/A.script" 2>&1; grep -E "^implant exit|^payload" "$W/A.script"; grep -q "killed: yes" "$W/A.script" && pass "A: implant SIGKILLed" || fail "A: implant not killed"; true
   stop_agent
   grep -c 'RESPONSE-KILL' "$W/A.nd" | sed 's/^/  RESPONSE-KILL alerts: /'
   grep -q "refused to kill" "$W/A.nd" && fail "A: a refusal was raised for the implant" || pass "A: no refusal for the implant"

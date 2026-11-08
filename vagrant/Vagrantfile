@@ -1,108 +1,151 @@
-# Multi-VM Vagrant lab — implements the machine matrix from ../MATRIX.md.
+# The rig's one Vagrantfile: every machine of ../machines.json, on every provider.
 #
-# macOS Apple Silicon host (QEMU/HVF provider): only the arm64 Linux machines
-# run here. The Windows machines (amd64 boxes, VirtualBox/Hyper-V/libvirt)
-# are defined for an x86 lab machine — see README.md.
+#   Linux host        vagrant up debian12 --provider libvirt
+#   Windows host      vagrant up debian12 --provider hyperv      (elevated PowerShell)
+#   Apple Silicon     vagrant up debian12 --provider qemu
+#   any x86_64 host   vagrant up debian12 --provider virtualbox
 #
-#   vagrant up                    # primary machine (ubuntu2404) only
-#   vagrant up debian13           # one machine from the matrix
-#   vagrant ssh debian13
-#   vagrant destroy -f debian13   # rollback = destroy + up (no QEMU snapshots)
+# Day to day, use ../rig.py (`python rig.py up debian12`, `build`, `run`): it picks the
+# provider for the host and runs from this directory. ../README.md is the guide; this file
+# only turns the catalog into Vagrant machines.
+#
+# Tunables (environment, read at every `vagrant` command):
+#   RIG_ROOT         the directory holding agent/, rules/, scenarios/ (server/ optional);
+#                    default: the parent of the rig checkout. SYNTHAEA_ROOT works too.
+#   RIG_MEMORY_MB    guest RAM, overriding the catalog (Hyper-V: the Dynamic Memory ceiling)
+#   RIG_CPUS         guest vCPUs (default: half the host's, between 2 and 8)
+#   RIG_ORT_COMPAT=1 also run provisioning/ort-compat.sh on first provision (Debian 12,
+#                    Ubuntu 22.04: newer glibc/libstdc++ for the prebuilt ONNX Runtime)
 
-# Linux machines: name => [box, local SSH port (the QEMU plugin can't
-# auto-allocate, each machine needs a unique host port), RAM].
-LINUX_MACHINES = {
-  "ubuntu2404" => { box: "perk/ubuntu-24.04-arm64", ssh_port: 50022, primary: true },
-  "ubuntu2204" => { box: "perk/ubuntu-2204-arm64",  ssh_port: 50122, libvirt_box: "generic/ubuntu2204" },
-  "debian12"   => { box: "cloud-image/debian-12",   ssh_port: 50222, libvirt_box: "generic/debian12" },
-  "debian13"   => { box: "cloud-image/debian-13",   ssh_port: 50322 },
-  "fedora41"   => { box: "fedora/41-cloud-base",    ssh_port: 50422 },
-  "rocky9"     => { box: "rockylinux/9",            ssh_port: 50522, libvirt_box: "generic/rocky9" },
-}.freeze
+require "etc"
+require "json"
 
-# Windows machines (amd64 — unusable under QEMU arm64, see README.md).
-WINDOWS_MACHINES = {
-  "win11"     => { box: "gusztavvargadr/windows-11" },
-  "win10"     => { box: "gusztavvargadr/windows-10" },
-  "winserver" => { box: "gusztavvargadr/windows-server" },
-}.freeze
+CATALOG = JSON.parse(File.read(File.expand_path("../machines.json", __dir__))).freeze
+DEFAULTS = CATALOG.fetch("defaults")
+CPUS = Integer(ENV["RIG_CPUS"] || (Etc.nprocessors / 2).clamp(2, 8))
 
-# musl/BusyBox row (amd64, issue #123) — unusable under QEMU arm64 same as the
-# Windows machines above, and `../vagrant-hyperv` is Hyper-V-only, so this runs
-# under VirtualBox on an x86 lab host instead. `generic/alpine319` is the newest
-# version Vagrant Cloud publishes with a virtualbox/amd64 provider (3.19.x, not
-# the 3.24 MATRIX.md/#123 was manually validated against) — close enough for
-# musl/BusyBox toolchain coverage, not a kernel-version-sensitive row.
-ALPINE_VIRTUALBOX_MACHINES = {
-  "alpine319" => { box: "generic/alpine319" },
+RIG_DIR = File.expand_path("..", __dir__)
+ROOT = File.expand_path(ENV["RIG_ROOT"] || ENV["SYNTHAEA_ROOT"] || File.join(RIG_DIR, ".."))
+# Linux guests get each checkout one-way under /synthaea by rsync, on `up` and on
+# `vagrant rsync <machine>` (rig.py build/run re-sync first). Only these directories: the
+# root may hold anything else. rsync's --delete spares excluded paths, so build output and a
+# source-built ONNX Runtime survive a re-sync inside the guest.
+SYNCED = {
+  "agent" => ["target/", "onnxruntime/"],
+  "rules" => [],
+  "scenarios" => [],
+  "server" => ["node_modules/", ".next/"],
 }.freeze
+COMMON_EXCLUDES = [".git", ".vagrant/"].freeze
+RIG_EXCLUDES = [".offline/", "reports/"].freeze
+
+def memory_mb(spec)
+  Integer(ENV["RIG_MEMORY_MB"] || spec["memory_mb"] || DEFAULTS.fetch(spec.fetch("guest")).fetch("memory_mb"))
+end
+
+# Toolchain scripts live in the agent checkout, next to the code they build.
+def provision_script(spec)
+  File.join(ROOT, spec["provision"] || DEFAULTS.fetch(spec.fetch("guest")).fetch("provision"))
+end
 
 Vagrant.configure("2") do |config|
-  # The QEMU and libvirt providers get no native file sharing here: the umbrella is
-  # pushed via rsync to /synthaea at `vagrant up` (push again afterwards
-  # with `vagrant rsync <machine>`). Build artifacts stay inside the VM.
-  # "../.." is the umbrella checkout (lab/<vagrant dir> -> lab -> umbrella).
-  config.vm.synced_folder "../..", "/synthaea", type: "rsync",
-    rsync__exclude: [".git/", "target/", "node_modules/", ".next/", "ml/.venv/", "ml/datasets/"]
+  config.vm.boot_timeout = 600
+  # No /vagrant share anywhere: some boxes default it to SMB, which prompts for Windows
+  # credentials on every `up` under Hyper-V. Linux guests get /synthaea/* (below) only.
+  config.vm.synced_folder ".", "/vagrant", disabled: true
 
-  LINUX_MACHINES.each do |name, opts|
-    config.vm.define name, primary: opts[:primary], autostart: !!opts[:primary] do |m|
-      m.vm.box = opts[:box]
-      m.vm.hostname = "synthaea-#{name}"
+  CATALOG.fetch("machines").each do |name, spec|
+    boxes = spec.fetch("boxes")
+    windows = spec.fetch("guest") == "windows"
+    mem = memory_mb(spec)
 
-      # Linux hosts with KVM: vagrant-libvirt, on the x86_64 `generic/*` box where one
-      # exists (the default boxes above are arm64 builds for the QEMU/HVF harness).
-      m.vm.provider "libvirt" do |lv, override|
-        override.vm.box = opts[:libvirt_box] if opts[:libvirt_box]
-        lv.memory = 6144
-        lv.cpus = 4
-      end
+    config.vm.define name, primary: !!spec["primary"], autostart: !!spec["primary"] do |m|
+      # The base box only matters for a provider without its own entry below, where
+      # Vagrant then reports that the box does not support it.
+      m.vm.box = boxes.values.first
 
-      m.vm.provider "qemu" do |qe|
-        qe.memory = "4G"
-        qe.smp = "4"
-        qe.ssh_port = opts[:ssh_port]
-        # Plugin defaults already correct on Apple Silicon: arch aarch64,
-        # machine virt + highmem, cpu host, HVF acceleration,
-        # qemu_dir /opt/homebrew/share/qemu.
-      end
-
-      # Provisioning is provider-neutral and shared by every harness.
-      m.vm.provision "shell", path: "../../agent/toolchain/linux-toolchain.sh", privileged: false
-    end
-  end
-
-  WINDOWS_MACHINES.each do |name, opts|
-    config.vm.define name, autostart: false do |m|
-      m.vm.box = opts[:box]
-      m.vm.communicator = "winrm"
-
-      ["virtualbox", "hyperv", "vmware_desktop"].each do |p|
-        m.vm.provider p do |v|
-          v.memory = 8192 if v.respond_to?(:memory=)
-          v.cpus = 4 if v.respond_to?(:cpus=)
+      if windows
+        m.vm.guest = :windows
+        m.vm.communicator = "winrm"
+      else
+        m.vm.hostname = "synthaea-#{name}"
+        m.vm.allowed_synced_folder_types = ["rsync"]
+        m.vm.synced_folder RIG_DIR, "/synthaea/rig", type: "rsync", rsync__exclude: COMMON_EXCLUDES + RIG_EXCLUDES
+        SYNCED.each do |dir, excludes|
+          src = File.join(ROOT, dir)
+          next unless File.directory?(src)
+          m.vm.synced_folder src, "/synthaea/#{dir}", type: "rsync", rsync__exclude: COMMON_EXCLUDES + excludes
         end
       end
 
-      # Provider-neutral, same as the Linux machines above (#22): rustup +
-      # the MSVC/Windows SDK Build Tools the ETW/Event Log/SCM sensors need.
-      # `agent-install.ps1` (also in ../provisioning/) is run separately, per
-      # scenario, once a build exists — not part of one-time provisioning.
-      m.vm.provision "shell", path: "../../agent/toolchain/windows-toolchain.ps1"
-    end
-  end
-
-  ALPINE_VIRTUALBOX_MACHINES.each do |name, opts|
-    config.vm.define name, autostart: false do |m|
-      m.vm.box = opts[:box]
-      m.vm.hostname = "synthaea-#{name}"
-
-      m.vm.provider "virtualbox" do |vb|
-        vb.memory = 4096
-        vb.cpus = 4
+      if boxes["libvirt"]
+        m.vm.provider "libvirt" do |lv, override|
+          override.vm.box = boxes["libvirt"]
+          lv.memory = mem
+          lv.cpus = CPUS
+          lv.cpu_mode = "host-passthrough"
+        end
       end
 
-      m.vm.provision "shell", path: "../../agent/toolchain/alpine-toolchain.sh", privileged: false
+      if boxes["hyperv"]
+        m.vm.provider "hyperv" do |hv, override|
+          override.vm.box = boxes["hyperv"]
+          hv.vmname = "synthaea-#{name}"
+          hv.cpus = CPUS
+          hv.linked_clone = true
+          hv.enable_virtualization_extensions = false
+          if windows
+            hv.memory = mem
+          else
+            # Dynamic Memory: start at 2 GB, grow up to `mem`. A static allocation fails with
+            # 0x800705AA on a 16 GB laptop once a browser is open. The balloon grows
+            # reluctantly (these guests under-report demand), which is why
+            # build-host-setup.sh adds swap and caps cargo's jobs to the RAM it sees.
+            hv.memory = 2048
+            hv.maxmemory = [mem, 2048].max
+          end
+        end
+      end
+
+      if boxes["qemu"]
+        m.vm.provider "qemu" do |qe, override|
+          override.vm.box = boxes["qemu"]
+          qe.memory = "#{mem}M"
+          qe.smp = CPUS.to_s
+          # The plugin cannot auto-allocate the forwarded port; one per machine lets
+          # several run side by side. Defaults already fit Apple Silicon (aarch64, virt,
+          # HVF, /opt/homebrew/share/qemu).
+          qe.ssh_port = spec["qemu_ssh_port"] if spec["qemu_ssh_port"]
+        end
+      end
+
+      if boxes["virtualbox"]
+        m.vm.provider "virtualbox" do |vb, override|
+          override.vm.box = boxes["virtualbox"]
+          vb.memory = mem
+          vb.cpus = CPUS
+        end
+      end
+
+      if windows
+        # rustup (stable-msvc) + the MSVC/Windows SDK Build Tools the ETW, Event Log and
+        # SCM sensors link against. Idempotent: `vagrant provision <machine>` re-runs it.
+        m.vm.provision "toolchain", type: "shell", path: provision_script(spec)
+        next
+      end
+
+      # Order matters: swap and job cap before the toolchain build, box fix-ups before
+      # anything writes to the small volumes they relocate.
+      m.vm.provision "build-host-setup", type: "shell", path: "../provisioning/build-host-setup.sh"
+      # Box fix-ups (machines.json `prep`) detect on their own whether the box needs them.
+      (spec["prep"] || []).each do |script|
+        m.vm.provision "prep-#{File.basename(script, '.sh')}", type: "shell", path: "../provisioning/#{script}"
+      end
+      m.vm.provision "toolchain", type: "shell", path: provision_script(spec), privileged: false
+      # Opt-in, see the header. Also runnable on its own later:
+      #   vagrant provision <machine> --provision-with ort-compat
+      m.vm.provision "ort-compat", type: "shell", path: "../provisioning/ort-compat.sh",
+        args: ["--apply"], run: ENV["RIG_ORT_COMPAT"] == "1" ? "once" : "never"
     end
   end
 end

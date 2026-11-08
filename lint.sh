@@ -3,12 +3,12 @@
 # CI budget on a a work-in-progress push. Run it inside a provisioned lab VM
 # (the toolchain is already there):
 #
-#   vssh ubuntu2204 'bash /synthaea/lab/lint.sh'
+#   vssh ubuntu2204 'bash /synthaea/rig/lint.sh'
 #
 # Mirrors `.github/workflows/ci.yml`: fmt + clippy (`-D warnings`, workspace
 # minus the bpfel-target ebpf crate) + fmt on the ebpf crate on its own.
 set -uo pipefail
-cd /synthaea/agent   # the umbrella syncs to /synthaea; cargo runs in the agent repo
+cd /synthaea/agent   # rig.py syncs the agent checkout to /synthaea/agent
 # shellcheck disable=SC1091
 source "$HOME/.cargo/env"
 

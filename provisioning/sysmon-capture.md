@@ -67,7 +67,7 @@ The install itself already produces a 4 (service started) and a 16 (configuratio
 From the repository root inside the VM, run the existing lab capture as Administrator **without** `-SkipSysmon`:
 
 ```powershell
-.\lab\capture-sysmon-etw.ps1 `
+.\rig\capture-sysmon-etw.ps1 `
     -OutDir 'C:\Lab\Captures\sysmon-20261007' `
     -IdleSeconds 60 -BusySeconds 60 -SysmonSample 5000
 ```
