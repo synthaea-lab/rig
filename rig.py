@@ -217,7 +217,7 @@ def cmd_down(name: str, destroy: bool) -> None:
 
 def cmd_check() -> None:
     """What CI can check without a VM: scripts parse, the catalogs match the scenarios,
-    the two runners read the sidecars alike, validate-windows-admin.ps1 loads its
+    the two runners read the sidecars alike, runner/windows/validate-admin.ps1 loads its
     scenarios sibling."""
     bash = shutil.which("bash")
     if not bash:
@@ -289,16 +289,16 @@ def powershell_expectations(pwsh: str, sidecars: list[Path]) -> dict[Path, list[
 
 
 def check_admin_validation_loads_common() -> None:
-    """validate-windows-admin.ps1 resolves and loads ROOT/scenarios/scenarios/common.ps1."""
+    """runner/windows/validate-admin.ps1 resolves and loads ROOT/scenarios/scenarios/common.ps1."""
     pwsh = shutil.which("pwsh")
     if not pwsh:
-        print("skipped: no pwsh for the validate-windows-admin.ps1 sibling-path check")
+        print("skipped: no pwsh for the runner/windows/validate-admin.ps1 sibling-path check")
         return
     if not (ROOT / "scenarios").is_dir():
-        print(f"skipped: no {ROOT / 'scenarios'} for the validate-windows-admin.ps1 sibling-path check")
+        print(f"skipped: no {ROOT / 'scenarios'} for the runner/windows/validate-admin.ps1 sibling-path check")
         return
     subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-File",
-                    str(RIG / "tests" / "validate-windows-admin-resolves-siblings.ps1"), "-Root", str(ROOT)],
+                    str(RIG / "tests" / "validate-admin-resolves-siblings.ps1"), "-Root", str(ROOT)],
                    cwd=RIG, check=True)
 
 

@@ -1,15 +1,18 @@
 # RUNBOOK — PR #155 validation (issue #152 argv + #53 lineage non-regression)
 
 > Historical (2026-09): the Hyper-V run that validated PR #155, kept for its measurements.
-> For a new run use `python rig.py up`, `python rig.py build`, `python rig.py run` (`README.md`); the
-> `vprep`/`vup` helpers below still work from `rig\vagrant\hyperv\helpers.ps1`.
+> For a new run use `python rig.py up`, `python rig.py build`, `python rig.py run` ([`README.md`](../README.md)); the
+> `vprep`/`vup` helpers below still work from `rig\vagrant\hyperv\helpers.ps1`. The one-off
+> `validate-155.sh` validator and the `lint.sh` gate below were removed from the rig once
+> their job was done (the agent's CI runs the same fmt + clippy gate);
+> `git log -- validate-155.sh lint.sh` finds them.
 
-Runs the Debian-family x86_64 rows of `../../MATRIX.md` on this Hyper-V harness:
+Runs the Debian-family x86_64 rows of the [machine matrix](machine-matrix.md) on this Hyper-V harness:
 `ubuntu2204` (5.15 — strictest verifier) and `debian12` (6.1). One VM at a time
 on a 16 GB host. The 6.8 / 6.12 rows have no ready Hyper-V box — see
-[../README.md](../README.md).
+[vagrant/README.md](../vagrant/README.md).
 
-All `vagrant` commands run from an **elevated PowerShell** in this directory.
+All `vagrant` commands run from an **elevated PowerShell** in `rig\vagrant\hyperv`.
 
 ---
 
@@ -72,7 +75,7 @@ Uncommitted host changes are included — `vsync` sends the working tree, not `H
 
 ```powershell
 # toolchain sanity in one shot
-vssh MACHINE 'bash /synthaea/rig/diag.sh'
+vssh MACHINE 'bash /synthaea/rig/tools/diagnose-ebpf-toolchain.sh'
 
 # lint gate (same checks as CI, without spending the CI budget)
 vssh MACHINE 'bash /synthaea/rig/lint.sh'
@@ -126,10 +129,10 @@ Classic eBPF build failures (see `agent/toolchain/linux-toolchain.sh`):
 ## 5. 6.8 / 6.12 — no ready Hyper-V box
 
 `ubuntu2404` (6.8) and `debian13` (6.12): neither `generic/*` nor `bento/*`
-ships a Hyper-V box. Options (see [../README.md](../README.md)):
+ships a Hyper-V box. Options (see [vagrant/README.md](../vagrant/README.md)):
 
 - add `"ubuntu2404" => { box: "boxen/ubuntu-24.04" }` to `LINUX_MACHINES` in
-  the [Vagrantfile](Vagrantfile) (third-party box, low download count — your call);
+  the [Vagrantfile](../vagrant/Vagrantfile) (third-party box, low download count — your call);
 - build one from the official cloud image (`qemu-img convert -O vhdx` + a
   `vagrant` user + the insecure key + `vagrant box add`) — ~an evening;
 - or delegate those two rows to the arm64 QEMU provider (Apple Silicon).

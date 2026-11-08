@@ -42,22 +42,27 @@ Each Linux VM gets those checkouts one-way at `/synthaea/<name>` (rsync), builds
 VMs get the same checkouts uploaded to `C:\synthaea`. `RIG_ROOT` (or `SYNTHAEA_ROOT`) points
 the rig at another root directory, for checkouts that live elsewhere.
 
+The toolchain scripts the VMs are provisioned with live in the agent repository
+(`agent/toolchain/`), next to the code they build.
+
+## Repository layout
+
 | Path | Purpose |
 | --- | --- |
 | `rig.py`, `justfile` | The commands above (Python ≥ 3.10, standard library only; `just` optional) |
 | `machines.json` | **The machine catalog**: every machine, its box per provider, its provisioning. Read by the Vagrantfile and `rig.py` |
-| `MATRIX.md` | Why each machine is in the matrix (OS, kernel, family, what it proves), and what was validated where |
 | `vagrant/` | The one Vagrantfile (libvirt, Hyper-V, QEMU, VirtualBox), per-provider host setup and box fix-ups ([README](vagrant/README.md)); `vagrant/hyperv/` has the Windows host bootstrap and PowerShell helpers |
-| `provisioning/` | In-guest scripts: build-host setup, box fix-ups, the agent build (`agent-build.sh`/`.ps1`), the ONNX Runtime compatibility step ([README](provisioning/README.md)) |
+| `provisioning/` | In-guest scripts: build-host setup, box fix-ups, the agent build (`agent-build.sh`/`.ps1`), the ONNX Runtime compatibility step, the Sysmon lab config ([what each one does](docs/provisioning.md)) |
 | `runner/` | The scenario runner (`run-scenarios.sh` for Linux guests, `run-scenarios.ps1` for Windows guests) and its catalogs (`scenarios.conf`, `scenarios-windows.conf`) |
+| `runner/windows/validate-admin.ps1` | Elevated live validation of the Windows ETW sensor (orphaned sessions, 8.3 paths, mark-of-the-web removal, keyword masks), run by hand in a Windows guest |
 | `tools/offline_bundle.py` | Host side of offline builds: vendors the crates and pushes them to a VM |
+| `tools/diagnose-ebpf-toolchain.sh` | In-guest eBPF toolchain diagnostic, for a build without embedded probes |
+| `tools/windows/` | Windows telemetry capture helpers, `capture-sysmon-etw.ps1` and `observe-rdp.ps1` (they write to a capture directory you choose) |
+| `tests/` | Fixtures and helpers for `python rig.py check`: sidecar fixtures (`tests/sidecars/`), the PowerShell sidecar reader, the `validate-admin.ps1` sibling-path check |
+| `docs/` | [Machine matrix](docs/machine-matrix.md) (why each machine is in the matrix, what was validated where), [provisioning scripts](docs/provisioning.md), [Sysmon lab capture](docs/sysmon-capture.md), the historical [Hyper-V #155 runbook](docs/hyperv-runbook-155.md) |
 | `reports/` | Run reports copied from the VMs (gitignored, see [Reports](#reports)) |
-| `validate-*.sh`, `validate-windows-admin.ps1` | One-off in-guest validation scripts of specific agent changes (#155, #652, Windows admin) |
-| `lint.sh`, `diag.sh` | In-guest helpers: the agent's CI lint gate; the eBPF toolchain diagnostic |
-| `capture-sysmon-etw.ps1`, `rdp-observe.ps1` | Windows telemetry capture helpers (they write to a capture directory you choose) |
-
-The toolchain scripts the VMs are provisioned with live in the agent repository
-(`agent/toolchain/`), next to the code they build.
+| `.github/` | CI: the DCO sign-off check |
+| `LICENSE`, `NOTICE` | Apache-2.0 license and attribution notice |
 
 ## Prerequisites
 
@@ -139,7 +144,7 @@ bpf-linker, bindgen, aya-tool): 15 minutes on a fast link, an hour on a slow one
 - `down <m> [--destroy]`: `vagrant halt` (or `destroy --force`).
 - `check`: what CI can check without a VM: the scripts parse, the catalogs are valid, every
   scenario has a runner catalog row and a readable sidecar, and (with pwsh)
-  `validate-windows-admin.ps1` resolves and loads `scenarios/scenarios/common.ps1` under the
+  `runner/windows/validate-admin.ps1` resolves and loads `scenarios/scenarios/common.ps1` under the
   root.
 
 For anything else, plain Vagrant in `vagrant/` (`vagrant ssh debian12`,
@@ -148,7 +153,7 @@ your checkouts are not next to the rig.
 
 ## Machines
 
-[`machines.json`](machines.json) is the single catalog; [`MATRIX.md`](MATRIX.md) says what
+[`machines.json`](machines.json) is the single catalog; [`docs/machine-matrix.md`](docs/machine-matrix.md) says what
 each row proves. Box per provider (amd64 unless noted):
 
 | Machine | Row | libvirt (Linux) | hyperv (Windows) | qemu (Apple Silicon, arm64) | Notes |
@@ -191,7 +196,7 @@ listed per scenario as a follow-up but never judged (unless a sidecar expects it
 
 Reports are **gitignored**: most runs are a developer checking a change. When a run is
 evidence (a MATRIX row validated, a regression shown), commit it with
-`git add -f reports/<file>` and cite it from `MATRIX.md`. A report holds only what the
+`git add -f reports/<file>` and cite it from `docs/machine-matrix.md`. A report holds only what the
 guest saw (its hostname, the guest user's paths, process ids, commits): check it before
 committing, like any log.
 
@@ -256,7 +261,7 @@ builds onnxruntime (~1 GB, an hour; needs CMake ≥ 3.28). Tracked as an agent i
 | Symptom | Cause, fix |
 | --- | --- |
 | Link of `agent` fails: undefined `__isoc23_strtol`, `GLIBCXX_3.4.31` | Older distro, see [ONNX Runtime on older distros](#onnx-runtime-on-older-distros) |
-| `agent status`: "built without embedded eBPF probes" | bpf-linker was missing at build time. `vagrant provision <m> --provision-with toolchain`, then `bash /synthaea/rig/diag.sh` in the guest; `agent-build.sh` refuses to build without bpf-linker |
+| `agent status`: "built without embedded eBPF probes" | bpf-linker was missing at build time. `vagrant provision <m> --provision-with toolchain`, then `bash /synthaea/rig/tools/diagnose-ebpf-toolchain.sh` in the guest; `agent-build.sh` refuses to build without bpf-linker |
 | Offline eBPF build: `no matching package named core`/`compiler_builtins` | The sysroot crates are missing from the vendor dir: the bundle was made by hand; let `--offline` make it |
 | Online builds fail with "failed to select a version ... vendored-sources" | A hand-written `~/.cargo/config.toml` with a global source replacement; `agent-build.sh` moves such a file aside (`config.toml.vendored-bak`) |
 | `vagrant rsync` ignores a new exclude | Vagrant saved the synced folder at `up`: `vagrant reload <m>` once |
@@ -288,7 +293,7 @@ README). The rig never edits a sidecar: ML model records bind to their exact byt
 
 ## Adding a machine
 
-Add the row to `MATRIX.md` (what it proves), then the entry to `machines.json` (a box per
+Add the row to [`docs/machine-matrix.md`](docs/machine-matrix.md) (what it proves), then the entry to `machines.json` (a box per
 provider that has one; `provision` if it is not apt/dnf; a `prep` script in
 `provisioning/` if the box needs a fix-up, written to detect whether it applies). Nothing
 else lists machines.

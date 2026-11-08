@@ -2,7 +2,7 @@
 # eBPF toolchain diagnostic — run inside a lab VM when a build lands WITHOUT the
 # embedded probes ("sensor-linux was built without embedded eBPF probes"):
 #
-#   vssh ubuntu2204 'bash /synthaea/rig/diag.sh'
+#   vssh ubuntu2204 'bash /synthaea/rig/tools/diagnose-ebpf-toolchain.sh'
 #
 # Checks the three things userspace/build.rs needs (bpf-linker on PATH, a nightly
 # with rust-src, an LLVM major that matches), then does a verbose probe build so

@@ -156,7 +156,7 @@ fi
 say "agent status (eBPF verifier)"
 sudo "$BIN" status 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | tee "$STATE/status.txt"
 if grep -q "without embedded eBPF probes" "$STATE/status.txt"; then
-  die "the build has no eBPF probes (bash $RIG/diag.sh explains why)"
+  die "the build has no eBPF probes (bash $RIG/tools/diagnose-ebpf-toolchain.sh explains why)"
 fi
 
 cat > "$STATE/build-info" <<INFO

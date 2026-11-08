@@ -79,7 +79,7 @@ $run = Join-Path $State "runs\$stamp"
 New-Item -ItemType Directory -Force -Path $run, (Join-Path $State "reports") | Out-Null
 
 function New-LabConfig([string]$Dir) {
-  # The lab template of rig\validate-windows-admin.ps1: offline, nothing outside $Dir.
+  # The lab template of rig\runner\windows\validate-admin.ps1: offline, nothing outside $Dir.
   $config = Join-Path $Dir "agent.toml"
   @"
 schema_version = 1

@@ -51,15 +51,15 @@
 .NOTES
     Run from an elevated Windows PowerShell 5.1+ prompt, with no other agent
     running. The script expects the sibling checkouts under -Root (default:
-    the parent of this script's directory, C:\synthaea in the lab VMs):
+    the directory holding rig\, three levels above this script; C:\synthaea in the lab VMs):
     agent\ (phases F and G run cargo test there; agent.exe defaults to its
     target\release) and scenarios\ (for scenarios\common.ps1). For the full
     validation, build agent.exe first:
         cd C:\synthaea\agent; cargo build --release -p agent   (the branch under test)
-        powershell -ExecutionPolicy Bypass -File C:\synthaea\rig\validate-windows-admin.ps1
+        powershell -ExecutionPolicy Bypass -File C:\synthaea\rig\runner\windows\validate-admin.ps1
 
     To run only the #708 ETW mask phase, skip the agent-dependent phases:
-        powershell -ExecutionPolicy Bypass -File C:\synthaea\rig\validate-windows-admin.ps1 -SkipOrphans -SkipRootCause -SkipLongPath -SkipMarkRemoval
+        powershell -ExecutionPolicy Bypass -File C:\synthaea\rig\runner\windows\validate-admin.ps1 -SkipOrphans -SkipRootCause -SkipLongPath -SkipMarkRemoval
 
     About 6 minutes with the default -ProbeCounts, plus the short #708 ETW
     test. Stops only what it created plus `wtrace-` sessions, which are the
@@ -82,7 +82,7 @@ param(
 
 # Defaults resolved here, not in param(): Windows PowerShell 5.1 leaves
 # $PSScriptRoot empty while it evaluates param() defaults.
-if (-not $Root) { $Root = Split-Path -Parent $PSScriptRoot }
+if (-not $Root) { $Root = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) }
 $AgentDir = Join-Path $Root "agent"
 $CommonScript = Join-Path $Root "scenarios\scenarios\common.ps1"
 if (-not $AgentExe) { $AgentExe = Join-Path $AgentDir "target\release\agent.exe" }
