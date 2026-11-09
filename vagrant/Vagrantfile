@@ -48,6 +48,96 @@ def provision_script(spec)
   File.join(ROOT, spec["provision"] || DEFAULTS.fetch(spec.fetch("guest")).fetch("provision"))
 end
 
+# How each provider sizes a machine, called as tune.(provider_config, name, spec, mem). The
+# order is the order the provider blocks are declared in, which is the order Vagrant tries
+# them in when no --provider or VAGRANT_DEFAULT_PROVIDER picks one. rig.py check rejects a
+# `boxes` key that is not listed here (its PROVIDERS).
+PROVIDER_TUNING = {
+  "libvirt" => lambda do |lv, _name, _spec, mem|
+    lv.memory = mem
+    lv.cpus = CPUS
+    lv.cpu_mode = "host-passthrough"
+  end,
+  "hyperv" => lambda do |hv, name, spec, mem|
+    hv.vmname = "synthaea-#{name}"
+    hv.cpus = CPUS
+    hv.linked_clone = true
+    hv.enable_virtualization_extensions = false
+    if windows?(spec)
+      hv.memory = mem
+    else
+      # Dynamic Memory: start at 2 GB, grow up to `mem`. A static allocation fails with
+      # 0x800705AA on a 16 GB laptop once a browser is open. The balloon grows
+      # reluctantly (these guests under-report demand), which is why
+      # build-host-setup.sh adds swap and caps cargo's jobs to the RAM it sees.
+      hv.memory = 2048
+      hv.maxmemory = [mem, 2048].max
+    end
+  end,
+  "qemu" => lambda do |qe, _name, spec, mem|
+    qe.memory = "#{mem}M"
+    qe.smp = CPUS.to_s
+    # The plugin cannot auto-allocate the forwarded port; one per machine lets
+    # several run side by side. Defaults already fit Apple Silicon (aarch64, virt,
+    # HVF, /opt/homebrew/share/qemu).
+    qe.ssh_port = spec["qemu_ssh_port"] if spec["qemu_ssh_port"]
+  end,
+  "virtualbox" => lambda do |vb, _name, _spec, mem|
+    vb.memory = mem
+    vb.cpus = CPUS
+  end,
+}.freeze
+
+def windows?(spec)
+  spec.fetch("guest") == "windows"
+end
+
+# One provider block per provider the machine has a box for, each overriding the base box.
+def define_providers(m, name, spec)
+  boxes = spec.fetch("boxes")
+  mem = memory_mb(spec)
+  PROVIDER_TUNING.each do |provider, tune|
+    box = boxes[provider] or next
+    m.vm.provider provider do |x, override|
+      override.vm.box = box
+      tune.(x, name, spec, mem)
+    end
+  end
+end
+
+# Linux guests: the rig and each sibling checkout one-way under /synthaea by rsync.
+def define_linux_sync(m, name)
+  m.vm.hostname = "synthaea-#{name}"
+  m.vm.allowed_synced_folder_types = ["rsync"]
+  m.vm.synced_folder RIG_DIR, "/synthaea/rig", type: "rsync", rsync__exclude: COMMON_EXCLUDES + RIG_EXCLUDES
+  SYNCED.each do |dir, excludes|
+    src = File.join(ROOT, dir)
+    next unless File.directory?(src)
+    m.vm.synced_folder src, "/synthaea/#{dir}", type: "rsync", rsync__exclude: COMMON_EXCLUDES + excludes
+  end
+end
+
+def define_windows_provisioners(m, spec)
+  # rustup (stable-msvc) + the MSVC/Windows SDK Build Tools the ETW, Event Log and
+  # SCM sensors link against. Idempotent: `vagrant provision <machine>` re-runs it.
+  m.vm.provision "toolchain", type: "shell", path: provision_script(spec)
+end
+
+def define_linux_provisioners(m, spec)
+  # Order matters: swap and job cap before the toolchain build, box fix-ups before
+  # anything writes to the small volumes they relocate.
+  m.vm.provision "build-host-setup", type: "shell", path: "../provisioning/build-host-setup.sh"
+  # Box fix-ups (machines.json `prep`) detect on their own whether the box needs them.
+  (spec["prep"] || []).each do |script|
+    m.vm.provision "prep-#{File.basename(script, '.sh')}", type: "shell", path: "../provisioning/#{script}"
+  end
+  m.vm.provision "toolchain", type: "shell", path: provision_script(spec), privileged: false
+  # Opt-in, see the header. Also runnable on its own later:
+  #   vagrant provision <machine> --provision-with ort-compat
+  m.vm.provision "ort-compat", type: "shell", path: "../provisioning/ort-compat.sh",
+    args: ["--apply"], run: ENV["RIG_ORT_COMPAT"] == "1" ? "once" : "never"
+end
+
 Vagrant.configure("2") do |config|
   config.vm.boot_timeout = 600
   # No /vagrant share anywhere: some boxes default it to SMB, which prompts for Windows
@@ -55,97 +145,21 @@ Vagrant.configure("2") do |config|
   config.vm.synced_folder ".", "/vagrant", disabled: true
 
   CATALOG.fetch("machines").each do |name, spec|
-    boxes = spec.fetch("boxes")
-    windows = spec.fetch("guest") == "windows"
-    mem = memory_mb(spec)
-
     config.vm.define name, primary: !!spec["primary"], autostart: !!spec["primary"] do |m|
-      # The base box only matters for a provider without its own entry below, where
-      # Vagrant then reports that the box does not support it.
-      m.vm.box = boxes.values.first
+      # The base box only matters for a provider without its own entry, where Vagrant
+      # then reports that the box does not support it.
+      m.vm.box = spec.fetch("boxes").values.first
 
-      if windows
+      if windows?(spec)
         m.vm.guest = :windows
         m.vm.communicator = "winrm"
+        define_providers(m, name, spec)
+        define_windows_provisioners(m, spec)
       else
-        m.vm.hostname = "synthaea-#{name}"
-        m.vm.allowed_synced_folder_types = ["rsync"]
-        m.vm.synced_folder RIG_DIR, "/synthaea/rig", type: "rsync", rsync__exclude: COMMON_EXCLUDES + RIG_EXCLUDES
-        SYNCED.each do |dir, excludes|
-          src = File.join(ROOT, dir)
-          next unless File.directory?(src)
-          m.vm.synced_folder src, "/synthaea/#{dir}", type: "rsync", rsync__exclude: COMMON_EXCLUDES + excludes
-        end
+        define_linux_sync(m, name)
+        define_providers(m, name, spec)
+        define_linux_provisioners(m, spec)
       end
-
-      if boxes["libvirt"]
-        m.vm.provider "libvirt" do |lv, override|
-          override.vm.box = boxes["libvirt"]
-          lv.memory = mem
-          lv.cpus = CPUS
-          lv.cpu_mode = "host-passthrough"
-        end
-      end
-
-      if boxes["hyperv"]
-        m.vm.provider "hyperv" do |hv, override|
-          override.vm.box = boxes["hyperv"]
-          hv.vmname = "synthaea-#{name}"
-          hv.cpus = CPUS
-          hv.linked_clone = true
-          hv.enable_virtualization_extensions = false
-          if windows
-            hv.memory = mem
-          else
-            # Dynamic Memory: start at 2 GB, grow up to `mem`. A static allocation fails with
-            # 0x800705AA on a 16 GB laptop once a browser is open. The balloon grows
-            # reluctantly (these guests under-report demand), which is why
-            # build-host-setup.sh adds swap and caps cargo's jobs to the RAM it sees.
-            hv.memory = 2048
-            hv.maxmemory = [mem, 2048].max
-          end
-        end
-      end
-
-      if boxes["qemu"]
-        m.vm.provider "qemu" do |qe, override|
-          override.vm.box = boxes["qemu"]
-          qe.memory = "#{mem}M"
-          qe.smp = CPUS.to_s
-          # The plugin cannot auto-allocate the forwarded port; one per machine lets
-          # several run side by side. Defaults already fit Apple Silicon (aarch64, virt,
-          # HVF, /opt/homebrew/share/qemu).
-          qe.ssh_port = spec["qemu_ssh_port"] if spec["qemu_ssh_port"]
-        end
-      end
-
-      if boxes["virtualbox"]
-        m.vm.provider "virtualbox" do |vb, override|
-          override.vm.box = boxes["virtualbox"]
-          vb.memory = mem
-          vb.cpus = CPUS
-        end
-      end
-
-      if windows
-        # rustup (stable-msvc) + the MSVC/Windows SDK Build Tools the ETW, Event Log and
-        # SCM sensors link against. Idempotent: `vagrant provision <machine>` re-runs it.
-        m.vm.provision "toolchain", type: "shell", path: provision_script(spec)
-        next
-      end
-
-      # Order matters: swap and job cap before the toolchain build, box fix-ups before
-      # anything writes to the small volumes they relocate.
-      m.vm.provision "build-host-setup", type: "shell", path: "../provisioning/build-host-setup.sh"
-      # Box fix-ups (machines.json `prep`) detect on their own whether the box needs them.
-      (spec["prep"] || []).each do |script|
-        m.vm.provision "prep-#{File.basename(script, '.sh')}", type: "shell", path: "../provisioning/#{script}"
-      end
-      m.vm.provision "toolchain", type: "shell", path: provision_script(spec), privileged: false
-      # Opt-in, see the header. Also runnable on its own later:
-      #   vagrant provision <machine> --provision-with ort-compat
-      m.vm.provision "ort-compat", type: "shell", path: "../provisioning/ort-compat.sh",
-        args: ["--apply"], run: ENV["RIG_ORT_COMPAT"] == "1" ? "once" : "never"
     end
   end
 end
