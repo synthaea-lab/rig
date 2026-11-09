@@ -19,6 +19,7 @@ rig/. RIG_ROOT (or SYNTHAEA_ROOT) overrides it. README.md is the guide.
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import os
 import platform
@@ -35,6 +36,7 @@ from pathlib import Path
 from typing import Callable
 
 RIG = Path(__file__).resolve().parent
+MACHINES_JSON = RIG / "machines.json"
 ROOT = Path(os.environ.get("RIG_ROOT") or os.environ.get("SYNTHAEA_ROOT") or RIG.parent).resolve()
 VAGRANT_DIR = RIG / "vagrant"
 REPORTS = RIG / "reports"
@@ -49,7 +51,9 @@ class RigError(RuntimeError):
     """The task cannot proceed; the message says what to do."""
 
 
+@functools.cache
 def provider() -> str:
+    """This host's Vagrant provider (RIG_PROVIDER overrides it), worked out once per process."""
     if os.environ.get("RIG_PROVIDER"):
         return os.environ["RIG_PROVIDER"]
     if WINDOWS:
@@ -59,18 +63,42 @@ def provider() -> str:
     return "libvirt"
 
 
-def machines() -> dict:
-    return json.loads((RIG / "machines.json").read_text(encoding="utf-8"))["machines"]
+@dataclass(frozen=True)
+class Machine:
+    """One machines.json entry, with the fields rig.py uses (the Vagrantfile reads the rest)."""
+
+    name: str
+    guest: str
+    matrix: str
+    boxes: dict[str, str]
+
+    @classmethod
+    def from_entry(cls, name: str, entry: dict) -> Machine:
+        return cls(name=name, guest=entry["guest"], matrix=entry["matrix"], boxes=dict(entry["boxes"]))
 
 
-def machine(name: str) -> dict:
+def load_catalog(path: Path) -> dict[str, Machine]:
+    """The machines of the catalog at `path`, by name, in its order."""
+    entries = json.loads(path.read_text(encoding="utf-8"))["machines"]
+    return {name: Machine.from_entry(name, entry) for name, entry in entries.items()}
+
+
+@functools.cache
+def machines() -> dict[str, Machine]:
+    """The rig's machine catalog, read from machines.json once per process."""
+    return load_catalog(MACHINES_JSON)
+
+
+def machine(name: str) -> Machine:
+    """Machine `name` of the catalog, which must have a box for this host's provider."""
     catalog, prov = machines(), provider()
     if name not in catalog:
         raise RigError(f"unknown machine '{name}'; known: {' '.join(catalog)}")
-    if prov not in catalog[name]["boxes"]:
+    found = catalog[name]
+    if prov not in found.boxes:
         raise RigError(f"{name} has no box for the {prov} provider (machines.json); "
-                       f"it runs on: {' '.join(catalog[name]['boxes'])}")
-    return catalog[name]
+                       f"it runs on: {' '.join(found.boxes)}")
+    return found
 
 
 def need_siblings() -> None:
@@ -147,10 +175,10 @@ class Guest:
     os: str
 
     @classmethod
-    def of(cls, spec: dict) -> Guest:
-        if spec["guest"] not in ("linux", "windows"):
-            raise RigError(f"unknown guest '{spec['guest']}' in machines.json (linux or windows)")
-        return cls(spec["guest"])
+    def of(cls, target: Machine) -> Guest:
+        if target.guest not in ("linux", "windows"):
+            raise RigError(f"unknown guest '{target.guest}' in machines.json (linux or windows)")
+        return cls(target.guest)
 
     @property
     def windows(self) -> bool:
@@ -206,26 +234,29 @@ class Guest:
         return ["ssh", name, "--command", command]
 
 
-def git(path: Path, *args: str) -> str:
-    res = subprocess.run(["git", "-C", str(path), *args], text=True, capture_output=True)
-    return res.stdout.strip() if res.returncode == 0 else ""
+def git(path: Path, *args: str) -> str | None:
+    """The stripped output of `git -C path args`, or None when git fails (not a repository,
+    no commit yet): callers decide what a missing answer means."""
+    res = subprocess.run(["git", "-C", str(path), *args], text=True, capture_output=True, check=False)
+    return res.stdout.strip() if res.returncode == 0 else None
 
 
 def source_info() -> str:
-    """What the guest builds and runs: the commit (and a dirty mark) of each checkout."""
+    """What the guest builds and runs: the commit (and a dirty mark) of each checkout.
+    It runs two git processes per checkout, so a command computes it once."""
     parts = []
     for name in [*SIBLINGS, "rig"]:
         path = RIG if name == "rig" else ROOT / name
-        sha = git(path, "rev-parse", "--short", "HEAD") if path.is_dir() else ""
+        sha = git(path, "rev-parse", "--short", "HEAD") if path.is_dir() else None
         if sha:
             dirty = "+dirty" if git(path, "status", "--porcelain", "--untracked-files=no") else ""
             parts.append(f"{name} {sha}{dirty}")
     return ", ".join(parts)
 
 
-def sync(name: str, spec: dict) -> None:
+def sync(target: Machine) -> None:
     """Pushes the sources: rsync for Linux guests, a zip upload for Windows guests (WinRM)."""
-    guest = Guest.of(spec)
+    name, guest = target.name, Guest.of(target)
     if not guest.windows:
         vagrant_run("rsync", name)
         return
@@ -236,7 +267,7 @@ def sync(name: str, spec: dict) -> None:
             base = RIG if part == "rig" else ROOT / part
             if not base.is_dir():
                 continue
-            files = git(base, "ls-files", "--cached", "--others", "--exclude-standard").splitlines()
+            files = (git(base, "ls-files", "--cached", "--others", "--exclude-standard") or "").splitlines()
             for rel in files:
                 if (base / rel).is_file():
                     zf.write(base / rel, f"{part}/{rel}")
@@ -250,9 +281,9 @@ def sync(name: str, spec: dict) -> None:
 def cmd_list() -> None:
     prov = provider()
     print(f"machines (provider for this host: {prov}; RIG_PROVIDER overrides), root {ROOT}:")
-    for name, spec in machines().items():
-        box = spec["boxes"].get(prov, f"- (no {prov} box)")
-        print(f"  {name:<11} {spec['guest']:<8} {spec['matrix']:<24} {box}")
+    for name, listed in machines().items():
+        box = listed.boxes.get(prov, f"- (no {prov} box)")
+        print(f"  {name:<11} {listed.guest:<8} {listed.matrix:<24} {box}")
 
 
 def cmd_up(name: str) -> None:
@@ -261,21 +292,22 @@ def cmd_up(name: str) -> None:
     vagrant_run("up", name, "--provider", provider())
 
 
-def build_command(name: str, guest: Guest, offline: bool, ort: str, ort_compat: bool) -> list[str]:
-    """The vagrant arguments that build the agent in the guest."""
+def build_command(name: str, guest: Guest, source: str, offline: bool, ort: str, ort_compat: bool) -> list[str]:
+    """The vagrant arguments that build the agent in the guest; `source` is source_info()."""
     if guest.windows:
-        return guest.shell(name, guest.invoke("provisioning/agent-build.ps1", Flag("-Source"), source_info()))
+        return guest.shell(name, guest.invoke("provisioning/agent-build.ps1", Flag("-Source"), source))
     flags = [Flag("--ort"), ort] + ([Flag("--offline")] if offline else []) + ([Flag("--ort-compat")] if ort_compat else [])
-    return guest.shell(name, guest.invoke("provisioning/agent-build.sh", *flags, env={"SYNTHAEA_SOURCE": source_info()}))
+    return guest.shell(name, guest.invoke("provisioning/agent-build.sh", *flags, env={"SYNTHAEA_SOURCE": source}))
 
 
-def run_command(name: str, guest: Guest, scenarios: list[str]) -> list[str]:
-    """The vagrant arguments that run `scenarios` (default: the catalog's) in the guest."""
+def run_command(name: str, guest: Guest, source: str, scenarios: list[str]) -> list[str]:
+    """The vagrant arguments that run `scenarios` (default: the catalog's) in the guest;
+    `source` is source_info()."""
     if guest.windows:
         return guest.shell(name, guest.invoke("runner/run-scenarios.ps1", Flag("-Machine"), name,
-                                              Flag("-Source"), source_info(), *scenarios))
+                                              Flag("-Source"), source, *scenarios))
     return guest.shell(name, guest.invoke("runner/run-scenarios.sh", Flag("--machine"), name, *scenarios,
-                                          env={"SYNTHAEA_SOURCE": source_info()}))
+                                          env={"SYNTHAEA_SOURCE": source}))
 
 
 def print_dry_run(args: list[str]) -> None:
@@ -284,14 +316,14 @@ def print_dry_run(args: list[str]) -> None:
 
 
 def cmd_build(name: str, offline: bool, ort: str, ort_compat: bool, dry_run: bool = False) -> None:
-    spec = machine(name)
-    guest = Guest.of(spec)
+    target = machine(name)
+    guest = Guest.of(target)
     need_siblings()
-    args = build_command(name, guest, offline, ort, ort_compat)
+    args = build_command(name, guest, source_info(), offline, ort, ort_compat)
     if dry_run:
         print_dry_run(args)
         return
-    sync(name, spec)
+    sync(target)
     if offline and not guest.windows:
         subprocess.run([sys.executable, str(RIG / "tools" / "offline_bundle.py"), "--push", name],
                        check=True, env=vagrant_env())
@@ -302,14 +334,14 @@ REPORT_LINE = "REPORT: "
 
 
 def cmd_run(name: str, scenarios: list[str], dry_run: bool = False) -> int:
-    spec = machine(name)
-    guest = Guest.of(spec)
+    target = machine(name)
+    guest = Guest.of(target)
     need_siblings()
-    args = run_command(name, guest, scenarios)
+    args = run_command(name, guest, source_info(), scenarios)
     if dry_run:
         print_dry_run(args)
         return 0
-    sync(name, spec)
+    sync(target)
     report = ""
 
     def note_report(line: str) -> None:
@@ -364,7 +396,7 @@ def cmd_check() -> None:
     scripts = sorted([*RIG.glob("*.sh"), *RIG.glob("*/*.sh")])
     for script in scripts:
         subprocess.run([bash, "-n", str(script.relative_to(RIG))], cwd=RIG, check=True)
-    json.loads((RIG / "machines.json").read_text(encoding="utf-8"))
+    load_catalog(MACHINES_JSON)
     print(f"rig: {len(scripts)} scripts parse, machines.json parses", flush=True)
     check_shellcheck_clean(scripts)
     scenarios = ROOT / "scenarios" / "scenarios"

@@ -63,6 +63,9 @@ class FakeVagrant(unittest.TestCase):
                         mock.patch.object(rig, "REPORTS", self.dir / "reports")):
             patcher.start()
             self.addCleanup(patcher.stop)
+        # provider() is worked out once per process: forget it on both sides of RIG_PROVIDER.
+        rig.provider.cache_clear()
+        self.addCleanup(rig.provider.cache_clear)
 
     def reply(self, call: int, out: str = "", err: str = "", rc: int = 0) -> None:
         """What call `call` of the fake vagrant prints and exits with."""
@@ -142,8 +145,8 @@ class RunCommand(FakeVagrant):
 
     def setUp(self) -> None:
         super().setUp()
-        spec = {"guest": "linux", "boxes": {"libvirt": "box"}, "matrix": "m"}
-        for patcher in (mock.patch.object(rig, "machine", return_value=spec),
+        target = rig.Machine(name="debian12", guest="linux", matrix="m", boxes={"libvirt": "box"})
+        for patcher in (mock.patch.object(rig, "machine", return_value=target),
                         mock.patch.object(rig, "need_siblings"),
                         mock.patch.object(rig, "sync"),
                         mock.patch.object(rig, "source_info", return_value="rig 1a2b3c4")):
@@ -157,13 +160,14 @@ class RunCommand(FakeVagrant):
             rc = rig.cmd_run("debian12", ["beacon"])
         self.assertEqual(rc, 1)
         self.assertEqual(self.args(), [
-            rig.run_command("debian12", rig.Guest("linux"), ["beacon"]),
+            rig.run_command("debian12", rig.Guest("linux"), "rig 1a2b3c4", ["beacon"]),
             ["ssh", "debian12", "--command", "cat /home/vagrant/r/20261108-debian12.md"]])
         dest = self.dir / "reports" / "20261108-debian12.md"
         self.assertEqual(dest.read_text(encoding="utf-8"), "# report\n")
         self.assertEqual(out.getvalue().splitlines()[1:], [
             "start", "REPORT: /old.md", "REPORT: /home/vagrant/r/20261108-debian12.md ", "end",
             f"report: {dest}"])
+        rig.source_info.assert_called_once_with()
 
     def test_no_report_line_is_a_rig_error(self) -> None:
         self.reply(1, out="crashed\n", rc=2)
