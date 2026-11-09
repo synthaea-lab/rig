@@ -3,8 +3,9 @@
 
     python rig.py list                          the machine catalog, with this host's boxes
     python rig.py up <machine>                  boot (and on first boot provision) a VM
-    python rig.py build <machine> [--offline] [--ort auto|prebuilt|static] [--ort-compat]
-    python rig.py run <machine> [scenario ...]  run scenarios, copy the report to reports/
+    python rig.py build <machine> [--offline] [--ort auto|prebuilt|static] [--ort-compat] [--dry-run]
+    python rig.py run <machine> [scenario ...] [--dry-run]
+                                                run scenarios, copy the report to reports/
     python rig.py report [machine]              print the newest report
     python rig.py down <machine> [--destroy]    halt (or delete) the VM
     python rig.py check                         lint the rig's scripts and scenario catalog
@@ -21,12 +22,15 @@ import argparse
 import json
 import os
 import platform
+import re
+import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
 import time
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 
 RIG = Path(__file__).resolve().parent
@@ -93,11 +97,85 @@ def vagrant(*args: str, capture: bool = False) -> subprocess.CompletedProcess:
                           encoding="utf-8", errors="replace", check=not capture, capture_output=capture)
 
 
-def guest_shell(name: str, spec: dict, command: str) -> list[str]:
-    """The vagrant arguments that run `command` in the guest's shell."""
-    if spec["guest"] == "windows":
-        return ["winrm", name, "--shell", "powershell", "--command", command]
-    return ["ssh", name, "--command", command]
+class Flag(str):
+    """A command-line switch (`--machine`, `-Source`) that the guest's shell must see bare,
+    where every other argument is quoted."""
+
+
+FLAG = re.compile(r"--?[A-Za-z][A-Za-z0-9-]*")
+ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+# What PowerShell reads as one literal bare word: no quotes, $, @, `, braces, parentheses,
+# commas, ;, |, &, <, >, # or whitespace, and no leading - (that would be a parameter name).
+POWERSHELL_BARE = re.compile(r"[A-Za-z0-9_.:\\/][A-Za-z0-9_.:\\/+-]*")
+# PowerShell ends a '...' string at any of these, and reads each one doubled as itself.
+POWERSHELL_SINGLE_QUOTES = re.compile("['\u2018\u2019\u201a\u201b]")
+
+
+@dataclass(frozen=True)
+class Guest:
+    """A lab VM's shell: bash over ssh in Linux guests, PowerShell over WinRM in Windows ones.
+    It builds the one command line vagrant sends, quoting every argument for that shell."""
+
+    os: str
+
+    @classmethod
+    def of(cls, spec: dict) -> Guest:
+        if spec["guest"] not in ("linux", "windows"):
+            raise RigError(f"unknown guest '{spec['guest']}' in machines.json (linux or windows)")
+        return cls(spec["guest"])
+
+    @property
+    def windows(self) -> bool:
+        return self.os == "windows"
+
+    def script_path(self, rel: str) -> str:
+        """Where the rig's `rel` (a / path in this checkout) is in the guest's copy of it."""
+        if self.windows:
+            return WIN_SRC + "\\rig\\" + rel.replace("/", "\\")
+        return f"/synthaea/rig/{rel}"
+
+    def quote(self, arg: str) -> str:
+        """`arg` as one literal word of the guest's shell. A Flag stays bare."""
+        if isinstance(arg, Flag):
+            if not FLAG.fullmatch(arg):
+                raise ValueError(f"not a command-line switch: {arg!r}")
+            return str(arg)
+        if not self.windows:
+            return shlex.quote(arg)
+        if POWERSHELL_BARE.fullmatch(arg):
+            return arg
+        return "'" + POWERSHELL_SINGLE_QUOTES.sub(lambda quote: quote.group() * 2, arg) + "'"
+
+    def command(self, program: str, *args: str, env: dict[str, str] | None = None) -> str:
+        """The command line that runs `program` with `args` (and, in Linux guests, `env`)."""
+        return self._line([self.quote(program)], args, env)
+
+    def invoke(self, script: str, *args: str, env: dict[str, str] | None = None) -> str:
+        """The command line that runs the rig's `script` (bash or PowerShell) with `args`."""
+        launcher = "&" if self.windows else "bash"
+        return self._line([launcher, self.quote(self.script_path(script))], args, env)
+
+    def _line(self, head: list[str], args: tuple[str, ...], env: dict[str, str] | None) -> str:
+        assignments = []
+        for key, value in (env or {}).items():
+            if self.windows:
+                raise ValueError("Windows guest scripts take parameters, not environment variables")
+            if not ENV_NAME.fullmatch(key):
+                raise ValueError(f"not an environment variable name: {key!r}")
+            assignments.append(f"{key}={self.quote(value)}")
+        return " ".join([*assignments, *head, *map(self.quote, args)])
+
+    def read_file(self, path: str) -> str:
+        """The command line that prints the guest's file `path` (UTF-8)."""
+        if self.windows:
+            return self.command("Get-Content", Flag("-Raw"), Flag("-Encoding"), "UTF8", path)
+        return self.command("cat", path)
+
+    def shell(self, name: str, command: str) -> list[str]:
+        """The vagrant arguments that run `command` in machine `name`'s shell."""
+        if self.windows:
+            return ["winrm", name, "--shell", "powershell", "--command", command]
+        return ["ssh", name, "--command", command]
 
 
 def git(path: Path, *args: str) -> str:
@@ -119,7 +197,8 @@ def source_info() -> str:
 
 def sync(name: str, spec: dict) -> None:
     """Pushes the sources: rsync for Linux guests, a zip upload for Windows guests (WinRM)."""
-    if spec["guest"] != "windows":
+    guest = Guest.of(spec)
+    if not guest.windows:
         vagrant("rsync", name)
         return
     archive = RIG / ".offline" / "synthaea-src.zip"
@@ -134,7 +213,7 @@ def sync(name: str, spec: dict) -> None:
                 if (base / rel).is_file():
                     zf.write(base / rel, f"{part}/{rel}")
     vagrant("upload", str(archive), "C:/synthaea-src.zip", name)
-    vagrant(*guest_shell(name, spec, f"Expand-Archive -Force C:\\synthaea-src.zip {WIN_SRC}"))
+    vagrant(*guest.shell(name, guest.command("Expand-Archive", Flag("-Force"), "C:\\synthaea-src.zip", WIN_SRC)))
 
 
 # --- commands -------------------------------------------------------------------------
@@ -154,30 +233,52 @@ def cmd_up(name: str) -> None:
     vagrant("up", name, "--provider", provider())
 
 
-def cmd_build(name: str, offline: bool, ort: str, ort_compat: bool) -> None:
+def build_command(name: str, guest: Guest, offline: bool, ort: str, ort_compat: bool) -> list[str]:
+    """The vagrant arguments that build the agent in the guest."""
+    if guest.windows:
+        return guest.shell(name, guest.invoke("provisioning/agent-build.ps1", Flag("-Source"), source_info()))
+    flags = [Flag("--ort"), ort] + ([Flag("--offline")] if offline else []) + ([Flag("--ort-compat")] if ort_compat else [])
+    return guest.shell(name, guest.invoke("provisioning/agent-build.sh", *flags, env={"SYNTHAEA_SOURCE": source_info()}))
+
+
+def run_command(name: str, guest: Guest, scenarios: list[str]) -> list[str]:
+    """The vagrant arguments that run `scenarios` (default: the catalog's) in the guest."""
+    if guest.windows:
+        return guest.shell(name, guest.invoke("runner/run-scenarios.ps1", Flag("-Machine"), name,
+                                              Flag("-Source"), source_info(), *scenarios))
+    return guest.shell(name, guest.invoke("runner/run-scenarios.sh", Flag("--machine"), name, *scenarios,
+                                          env={"SYNTHAEA_SOURCE": source_info()}))
+
+
+def print_dry_run(args: list[str]) -> None:
+    print(f"+ (vagrant/) vagrant {' '.join(args)}")
+    print("(dry run: nothing synced or run)")
+
+
+def cmd_build(name: str, offline: bool, ort: str, ort_compat: bool, dry_run: bool = False) -> None:
     spec = machine(name)
+    guest = Guest.of(spec)
     need_siblings()
-    sync(name, spec)
-    if spec["guest"] == "windows":
-        vagrant(*guest_shell(name, spec, f"& {WIN_SRC}\\rig\\provisioning\\agent-build.ps1 -Source '{source_info()}'"))
+    args = build_command(name, guest, offline, ort, ort_compat)
+    if dry_run:
+        print_dry_run(args)
         return
-    if offline:
+    sync(name, spec)
+    if offline and not guest.windows:
         subprocess.run([sys.executable, str(RIG / "tools" / "offline_bundle.py"), "--push", name],
                        check=True, env=vagrant_env())
-    flags = ["--ort", ort] + (["--offline"] if offline else []) + (["--ort-compat"] if ort_compat else [])
-    vagrant(*guest_shell(name, spec, f"SYNTHAEA_SOURCE='{source_info()}' bash /synthaea/rig/provisioning/agent-build.sh {' '.join(flags)}"))
+    vagrant(*args)
 
 
-def cmd_run(name: str, scenarios: list[str]) -> int:
+def cmd_run(name: str, scenarios: list[str], dry_run: bool = False) -> int:
     spec = machine(name)
+    guest = Guest.of(spec)
     need_siblings()
+    args = run_command(name, guest, scenarios)
+    if dry_run:
+        print_dry_run(args)
+        return 0
     sync(name, spec)
-    names = " ".join(scenarios)
-    if spec["guest"] == "windows":
-        cmd = f"& {WIN_SRC}\\rig\\runner\\run-scenarios.ps1 -Machine {name} -Source '{source_info()}' {names}"
-    else:
-        cmd = f"SYNTHAEA_SOURCE='{source_info()}' bash /synthaea/rig/runner/run-scenarios.sh --machine {name} {names}"
-    args = guest_shell(name, spec, cmd)
     print(f"+ (vagrant/) vagrant {' '.join(args)}", flush=True)
     proc = subprocess.Popen([shutil.which("vagrant") or "vagrant", *args], cwd=VAGRANT_DIR, env=vagrant_env(),
                             text=True, stdout=subprocess.PIPE, encoding="utf-8", errors="replace")
@@ -189,8 +290,7 @@ def cmd_run(name: str, scenarios: list[str]) -> int:
     rc = proc.wait()
     if not report:
         raise RigError("the runner wrote no report (see its output above)")
-    fetch = "Get-Content -Raw -Encoding UTF8 " if spec["guest"] == "windows" else "cat "
-    fetched = vagrant(*guest_shell(name, spec, fetch + report), capture=True)
+    fetched = vagrant(*guest.shell(name, guest.read_file(report)), capture=True)
     if fetched.returncode != 0:
         raise RigError(f"could not fetch {report} from {name}: {fetched.stderr.strip()}")
     dest = REPORTS / Path(report.replace("\\", "/")).name
@@ -217,13 +317,14 @@ def cmd_down(name: str, destroy: bool) -> None:
 
 
 def cmd_check() -> None:
-    """What CI can check without a VM: scripts parse and are shellcheck-clean, the catalogs
+    """What CI can check without a VM: the unit tests pass, scripts parse and are shellcheck-clean, the catalogs
     match the scenarios, the two runners read the sidecars alike, run-scenarios.sh judges
     alert snapshots as tests/judge states, runner/windows/validate-admin.ps1 loads its
     scenarios sibling, runner/LabAgent.ps1 writes the lab config and drives an agent by pid."""
     bash = shutil.which("bash")
     if not bash:
         raise RigError("bash is needed for the checks (Git for Windows ships one)")
+    check_unit_tests()
     scripts = sorted([*RIG.glob("*.sh"), *RIG.glob("*/*.sh")])
     for script in scripts:
         subprocess.run([bash, "-n", str(script.relative_to(RIG))], cwd=RIG, check=True)
@@ -241,6 +342,12 @@ def cmd_check() -> None:
     check_runner_judges_every_sidecar(bash, scenarios)
     check_admin_validation_loads_common()
     check_lab_agent_lifecycle()
+
+
+def check_unit_tests() -> None:
+    """The stdlib unittest suites in tests/ (test_*.py) pass."""
+    subprocess.run([sys.executable, "-B", "-m", "unittest", "discover", "--start-directory", "tests",
+                    "--pattern", "test_*.py"], cwd=RIG, check=True)
 
 
 def check_shellcheck_clean(scripts: list[Path]) -> None:
@@ -415,9 +522,11 @@ def main() -> int:
     p.add_argument("--offline", action="store_true", help="vendor crates on the host and push them (slow networks)")
     p.add_argument("--ort", choices=["auto", "prebuilt", "static"], default="auto", help="how ONNX Runtime is linked")
     p.add_argument("--ort-compat", action="store_true", help="Debian 12 / Ubuntu 22.04: newer glibc + libstdc++ first")
+    p.add_argument("--dry-run", action="store_true", help="print the guest command instead of syncing and running it")
     p = sub.add_parser("run")
     p.add_argument("machine")
     p.add_argument("scenarios", nargs="*", help="default: every default scenario of runner/scenarios.conf")
+    p.add_argument("--dry-run", action="store_true", help="print the guest command instead of syncing and running it")
     sub.add_parser("report").add_argument("machine", nargs="?")
     p = sub.add_parser("down")
     p.add_argument("machine")
@@ -428,8 +537,8 @@ def main() -> int:
     commands = {
         "list": cmd_list,
         "up": lambda: cmd_up(args.machine),
-        "build": lambda: cmd_build(args.machine, args.offline, args.ort, args.ort_compat),
-        "run": lambda: cmd_run(args.machine, args.scenarios),
+        "build": lambda: cmd_build(args.machine, args.offline, args.ort, args.ort_compat, args.dry_run),
+        "run": lambda: cmd_run(args.machine, args.scenarios, args.dry_run),
         "report": lambda: cmd_report(args.machine),
         "down": lambda: cmd_down(args.machine, args.destroy),
         "check": cmd_check,
