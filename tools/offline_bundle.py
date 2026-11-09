@@ -32,14 +32,16 @@ import sys
 import tarfile
 from pathlib import Path
 
-RIG = Path(__file__).resolve().parents[1]
-ROOT = Path(os.environ.get("RIG_ROOT") or os.environ.get("SYNTHAEA_ROOT") or RIG.parent).resolve()
+if not __package__:  # run as a script: make the rig checkout importable
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from tools.riglib import RIG, ROOT, RigError, run_cli, vagrant_capture, vagrant_run  # noqa: E402
+
 AGENT = ROOT / "agent"
-VAGRANT_DIR = RIG / "vagrant"
 CACHE = RIG / ".offline"
 
 
-class BundleError(RuntimeError):
+class BundleError(RigError):
     """The bundle cannot be made; the message says what to do."""
 
 
@@ -147,10 +149,13 @@ def make_bundle(target: str) -> Path:
 
 
 def vagrant_out(machine: str, command: str) -> str:
-    res = subprocess.run([shutil.which("vagrant") or "vagrant", "ssh", machine, "-c", command],
-                         cwd=VAGRANT_DIR, text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    """The output of `command` run in the machine over vagrant ssh; a failure is a BundleError
+    that carries what vagrant said on stderr."""
+    res = vagrant_capture("ssh", machine, "--command", command)
     if res.returncode != 0:
-        raise BundleError(f"cannot reach {machine} over vagrant ssh (is it up? python rig.py up {machine})")
+        said = res.stderr.strip()
+        raise BundleError(f"cannot reach {machine} over vagrant ssh (is it up? python rig.py up {machine})"
+                          + (f":\n{said}" if said else ""))
     return res.stdout.strip()
 
 
@@ -163,7 +168,7 @@ def push(machine: str, target: str | None) -> None:
     if len(probe) > 1 and probe[1] == key:
         print(f"{machine} already has offline bundle {key}")
         return
-    run("vagrant", "upload", tarball, f"/tmp/{tarball.name}", machine, cwd=VAGRANT_DIR)
+    vagrant_run("upload", str(tarball), f"/tmp/{tarball.name}", machine)
     print(f"pushed to {machine}:/tmp/{tarball.name} (agent-build.sh --offline unpacks it)")
 
 
@@ -172,17 +177,14 @@ def main() -> int:
     parser.add_argument("--push", metavar="MACHINE", help="upload the bundle to this lab machine")
     parser.add_argument("--target", help="guest target triple (default: asked from the guest, else x86_64-unknown-linux-gnu)")
     args = parser.parse_args()
-    try:
+
+    def task() -> None:
         if args.push:
             push(args.push, args.target)
         else:
             make_bundle(args.target or "x86_64-unknown-linux-gnu")
-    except BundleError as err:
-        print(f"error: {err}", file=sys.stderr)
-        return 2
-    except subprocess.CalledProcessError as err:
-        return err.returncode or 1
-    return 0
+
+    return run_cli(task)
 
 
 if __name__ == "__main__":

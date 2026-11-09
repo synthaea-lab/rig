@@ -21,8 +21,6 @@ from __future__ import annotations
 import argparse
 import functools
 import json
-import os
-import platform
 import re
 import shlex
 import shutil
@@ -33,34 +31,27 @@ import time
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
-RIG = Path(__file__).resolve().parent
+from tools.riglib import (
+    RIG,
+    ROOT,
+    VAGRANT_DIR,
+    RigError,
+    echo_vagrant,
+    provider,
+    run_cli,
+    vagrant_capture,
+    vagrant_env,
+    vagrant_run,
+    vagrant_stream,
+)
+
 MACHINES_JSON = RIG / "machines.json"
-ROOT = Path(os.environ.get("RIG_ROOT") or os.environ.get("SYNTHAEA_ROOT") or RIG.parent).resolve()
-VAGRANT_DIR = RIG / "vagrant"
 REPORTS = RIG / "reports"
-WINDOWS = os.name == "nt"
 # Synced to /synthaea/<name> in Linux guests, uploaded to C:\synthaea\<name> in Windows ones.
 SIBLINGS = ["agent", "rules", "scenarios", "server"]
 REQUIRED = ["agent", "rules", "scenarios"]
 WIN_SRC = "C:\\synthaea"
-
-
-class RigError(RuntimeError):
-    """The task cannot proceed; the message says what to do."""
-
-
-@functools.cache
-def provider() -> str:
-    """This host's Vagrant provider (RIG_PROVIDER overrides it), worked out once per process."""
-    if os.environ.get("RIG_PROVIDER"):
-        return os.environ["RIG_PROVIDER"]
-    if WINDOWS:
-        return "hyperv"
-    if sys.platform == "darwin":
-        return "qemu" if platform.machine() == "arm64" else "virtualbox"
-    return "libvirt"
 
 
 @dataclass(frozen=True)
@@ -233,51 +224,6 @@ def need_siblings() -> None:
     if missing:
         raise RigError(f"{ROOT} has no {', '.join(missing)}: clone them next to rig/ "
                        "(README.md, 'Setup'), or point RIG_ROOT at the directory that has them")
-
-
-def vagrant_env() -> dict[str, str]:
-    env = {**os.environ, "VAGRANT_DEFAULT_PROVIDER": provider(), "RIG_ROOT": str(ROOT)}
-    if provider() == "hyperv":
-        env.setdefault("VAGRANT_HYPERV_SWITCH", "Default Switch")
-    return env
-
-
-def vagrant_command(args: tuple[str, ...]) -> list[str]:
-    exe = shutil.which("vagrant")
-    if not exe:
-        raise RigError("vagrant is not installed (README.md, 'Prerequisites')")
-    return [exe, *args]
-
-
-def echo_vagrant(args: tuple[str, ...] | list[str]) -> None:
-    print(f"+ (vagrant/) vagrant {' '.join(args)}", flush=True)
-
-
-def vagrant_run(*args: str) -> None:
-    """Runs vagrant in vagrant/ with this host's provider as the default; a failure raises
-    CalledProcessError."""
-    command = vagrant_command(args)
-    echo_vagrant(args)
-    subprocess.run(command, cwd=VAGRANT_DIR, env=vagrant_env(), check=True)
-
-
-def vagrant_capture(*args: str) -> subprocess.CompletedProcess:
-    """Runs vagrant like vagrant_run, quietly, and returns its exit code and output."""
-    return subprocess.run(vagrant_command(args), cwd=VAGRANT_DIR, env=vagrant_env(), check=False,
-                          capture_output=True, text=True, encoding="utf-8", errors="replace")
-
-
-def vagrant_stream(*args: str, on_line: Callable[[str], None]) -> int:
-    """Runs vagrant like vagrant_run, echoes each line of its output as it comes and hands
-    it to `on_line`, and returns its exit code."""
-    command = vagrant_command(args)
-    echo_vagrant(args)
-    with subprocess.Popen(command, cwd=VAGRANT_DIR, env=vagrant_env(), stdout=subprocess.PIPE,
-                          text=True, encoding="utf-8", errors="replace") as proc:
-        for line in proc.stdout:
-            print(line, end="", flush=True)
-            on_line(line)
-    return proc.returncode
 
 
 class Flag(str):
@@ -765,13 +711,7 @@ def main() -> int:
         "down": lambda: cmd_down(args.machine, args.destroy),
         "check": cmd_check,
     }
-    try:
-        return commands[args.cmd]() or 0
-    except RigError as err:
-        print(f"error: {err}", file=sys.stderr)
-        return 2
-    except subprocess.CalledProcessError as err:
-        return err.returncode or 1
+    return run_cli(commands[args.cmd])
 
 
 if __name__ == "__main__":

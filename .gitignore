@@ -7,3 +7,5 @@
 # Keep one as evidence with `git add -f reports/<file>` and cite it from docs/machine-matrix.md.
 /reports/*
 !/reports/README.md
+# Bytecode of rig.py's imports (tools/riglib.py).
+__pycache__/
