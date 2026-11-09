@@ -34,8 +34,9 @@ the rig can check without a VM. Run it before opening a pull request. It needs t
   (the agent lifecycle both PowerShell runners share) writes, from `runner/lab-agent.toml.template`, the lab `agent.toml` of `tests/lab-agent/`
   byte for byte, and starts, waits for and stops an agent
   by pid; and the scripts that dot-source `powershell/RigCommon.ps1` (the admin check
-  `Assert-Administrator` and the summary writer `Write-Summary`) parse, find it and keep no
-  copy of their own (`tests/rig-common.ps1`).
+  `Assert-RigAdministrator` and the summary writer `Write-RigSummary`) parse, find it and keep no
+  copy of their own, and no RigCommon name is also defined by the scenarios' `common.ps1`
+  (`tests/rig-common.ps1`).
 
 A check that cannot run because a tool is missing prints `skipped:` and the reason. A
 change that touches the runners or provisioning is best also run on at least one VM with

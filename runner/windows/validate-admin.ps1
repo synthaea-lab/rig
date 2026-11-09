@@ -385,7 +385,7 @@ function Invoke-RootCausePhase([int[]]$ProbeCounts) {
 
 # -- Setup -------------------------------------------------------------------
 
-Assert-Administrator -Reason "the ETW kernel providers need Administrator"
+Assert-RigAdministrator -Reason "the ETW kernel providers need Administrator"
 if (-not ($SkipOrphans -and $SkipRootCause -and $SkipLongPath -and $SkipMarkRemoval) -and -not (Test-Path $AgentExe)) {
     throw "agent.exe not found at $AgentExe - build it first (cargo build --release -p agent) or pass -AgentExe"
 }

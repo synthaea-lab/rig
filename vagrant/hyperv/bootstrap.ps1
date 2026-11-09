@@ -11,7 +11,7 @@
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "../../powershell/RigCommon.ps1")
 
-Assert-Administrator -Reason "Run as Administrator"
+Assert-RigAdministrator -Reason "Hyper-V feature and group setup need it"
 
 Write-Host "== 1. Hyper-V feature ==" -ForegroundColor Cyan
 $hv = Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All

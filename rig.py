@@ -724,7 +724,7 @@ def check_lab_agent_lifecycle() -> None:
 
 def check_rig_common() -> None:
     """The scripts that dot-source powershell/RigCommon.ps1 parse and find it, keep no admin
-    check or Say of their own, and its Assert-Administrator and Write-Summary behave as
+    check or Say of their own, and its Assert-RigAdministrator and Write-RigSummary behave as
     tests/rig-common.ps1 states."""
     pwsh = shutil.which("pwsh")
     if not pwsh:
