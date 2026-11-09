@@ -17,7 +17,8 @@ the rig can check without a VM. Run it before opening a pull request. It needs t
 - the Python unit tests in `tests/test_*.py` pass (stdlib `unittest`; `tests/test_rig.py`
   pins the command lines `rig.py` sends to a guest, `tests/test_vagrant.py` how it runs
   vagrant, against a fake `vagrant` on `PATH`, `tests/test_offline_bundle.py` how
-  `tools/offline_bundle.py` pushes a bundle with the same fake, and `tests/test_riglib.py` the
+  `tools/offline_bundle.py` pushes a bundle with the same fake and that its bundle KEY matches
+  the one `provisioning/agent-build.sh` computes in bash, and `tests/test_riglib.py` the
   exit codes of `tools/riglib.py`, which both tools share);
 - every shell script parses, and is shellcheck-clean when `shellcheck` is installed;
 - `machines.json` holds what the Vagrantfile and `rig.py` rely on: a `linux` or `windows`
