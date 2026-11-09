@@ -29,8 +29,9 @@ the rig can check without a VM. Run it before opening a pull request. It needs t
   at `min_count`, a FAIL past `min_count + tolerance`;
 - with PowerShell (`pwsh`) installed, `run-scenarios.ps1` reads every sidecar exactly as
   `run-scenarios.sh` does, `runner/windows/validate-admin.ps1` resolves its scenarios
-  sibling, and `runner/LabAgent.ps1` (the agent lifecycle both PowerShell runners share)
-  writes, from `runner/lab-agent.toml.template`, the lab `agent.toml` of `tests/lab-agent/`
+  sibling and its phase functions record, against fakes of the ETW host and the agent, the
+  results and calls `tests/validate-admin-phases.ps1` states, and `runner/LabAgent.ps1`
+  (the agent lifecycle both PowerShell runners share) writes, from `runner/lab-agent.toml.template`, the lab `agent.toml` of `tests/lab-agent/`
   byte for byte, and starts, waits for and stops an agent
   by pid.
 

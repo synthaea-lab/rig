@@ -515,7 +515,8 @@ def cmd_check() -> None:
     """What CI can check without a VM: the unit tests pass, scripts parse and are shellcheck-clean, the catalogs
     match the scenarios, the two runners read the sidecars alike, run-scenarios.sh judges
     alert snapshots as tests/judge states, runner/windows/validate-admin.ps1 loads its
-    scenarios sibling, runner/LabAgent.ps1 writes the lab config and drives an agent by pid."""
+    scenarios sibling and its phases judge faked hosts as stated, runner/LabAgent.ps1 writes the
+    lab config and drives an agent by pid."""
     bash = shutil.which("bash")
     if not bash:
         raise RigError("bash is needed for the checks (Git for Windows ships one)")
@@ -536,6 +537,7 @@ def cmd_check() -> None:
     check_runner_judges_as_stated(bash)
     check_runner_judges_every_sidecar(bash, scenarios)
     check_admin_validation_loads_common()
+    check_admin_validation_phases()
     check_lab_agent_lifecycle()
 
 
@@ -692,6 +694,17 @@ def check_admin_validation_loads_common() -> None:
         return
     subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-File",
                     str(RIG / "tests" / "validate-admin-resolves-siblings.ps1"), "-Root", str(ROOT)],
+                   cwd=RIG, check=True)
+
+
+def check_admin_validation_phases() -> None:
+    """The phases of runner/windows/validate-admin.ps1 that are functions record the results
+    and make the calls tests/validate-admin-phases.ps1 states, against fakes of the host."""
+    pwsh = shutil.which("pwsh")
+    if not pwsh:
+        print("skipped: no pwsh for the runner/windows/validate-admin.ps1 phase check")
+        return
+    subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-File", str(RIG / "tests" / "validate-admin-phases.ps1")],
                    cwd=RIG, check=True)
 
 
