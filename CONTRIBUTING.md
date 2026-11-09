@@ -15,7 +15,8 @@ the rig can check without a VM. Run it before opening a pull request. It needs t
 (on Windows, the one from Git for Windows). It verifies that:
 
 - the Python unit tests in `tests/test_*.py` pass (stdlib `unittest`; `tests/test_rig.py`
-  pins the command lines `rig.py` sends to a guest);
+  pins the command lines `rig.py` sends to a guest, `tests/test_vagrant.py` how it runs
+  vagrant, against a fake `vagrant` on `PATH`);
 - every shell script parses, and is shellcheck-clean when `shellcheck` is installed;
 - `machines.json` parses;
 - the runner catalogs (`runner/scenarios.conf`, `runner/scenarios-windows.conf`) have a row
