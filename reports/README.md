@@ -1,9 +1,9 @@
 # reports
 
-Scenario run reports, `<date>-<machine>.md`, written by `../runner/run-scenarios.sh` (or
-`.ps1`) in the guest and copied here by `python rig.py run <machine>`. `python rig.py report
-[machine]` prints the newest.
+Scenario run reports, `<date>-<machine>.md`. The runner (`../runner/run-scenarios.sh`, or
+`run-scenarios.ps1` on Windows guests) writes them in the guest, `python3 rig.py run
+<machine>` copies them here, and `python3 rig.py report [machine]` prints the newest.
 
-Gitignored: commit one only when it is evidence (a MATRIX row validated, a regression
-shown) with `git add -f reports/<file>`, and cite it from [`../docs/machine-matrix.md`](../docs/machine-matrix.md). What a report
-contains and what PASS/UNEXPECTED/FAIL/ERROR/SKIP mean: `../README.md`, "Reports".
+Reports are ignored by git. What a report contains and what each result means is described
+in [`../README.md`](../README.md#reports); how to commit one as evidence is in
+[`../CONTRIBUTING.md`](../CONTRIBUTING.md#recording-a-result).
