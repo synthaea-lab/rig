@@ -142,7 +142,8 @@ bpf-linker, bindgen, aya-tool): 15 minutes on a fast link, an hour on a slow one
   `reports/`. Exit status is non-zero when anything FAILed or ERRORed.
 - `report [m]`: prints the newest report (of that machine).
 - `down <m> [--destroy]`: `vagrant halt` (or `destroy --force`).
-- `check`: what CI can check without a VM: the scripts parse, the catalogs are valid, every
+- `check`: what CI can check without a VM: the scripts parse and (with shellcheck) are
+  shellcheck-clean, the catalogs are valid, every
   scenario has a runner catalog row and a readable sidecar, and (with pwsh)
   `runner/windows/validate-admin.ps1` resolves and loads `scenarios/scenarios/common.ps1` under the
   root. CI (`.github/workflows/ci.yml`) runs it on every pull request and push to main, on

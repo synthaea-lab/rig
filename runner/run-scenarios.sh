@@ -181,9 +181,8 @@ missing_need() {   # prints the first unmet need of a scenario, if any
 # liveness is read from /proc and every signal goes through sudo, with a bounded wait.
 alive() { [ -d "/proc/$1" ]; }
 stop_agent() {   # $1 = sudo's pid, $2 = the agent's pid
-  local i
   sudo kill -INT "$2" 2>/dev/null
-  for i in $(seq 1 15); do alive "$1" || break; sleep 1; done
+  for _ in $(seq 1 15); do alive "$1" || break; sleep 1; done
   alive "$1" && sudo kill -KILL "$2" "$1" 2>/dev/null
   wait "$1" 2>/dev/null
 }
@@ -202,7 +201,7 @@ echo "   $PROG_OK programs accepted by the verifier, $CHECK_BAD check(s) not OK"
 # --- one scenario ----------------------------------------------------------------------
 declare -A R_STATUS R_FIRED R_UNEXP R_FOLLOW R_TIME R_DETAIL
 run_one() {
-  local n=$1 W=$RUN/$1 reason start sudo_pid agent_pid rc i last size quiet
+  local n=$1 W=$RUN/$1 reason start sudo_pid agent_pid rc last size quiet
   mkdir -p "$W/content/rules"
   reason=$(missing_need "$n")
   if [ -n "$reason" ]; then
@@ -217,11 +216,14 @@ run_one() {
   chmod -R a+rX "$W"
 
   start=$(date +%s)
-  # shellcheck disable=SC2086
+  # SC2086: C_FLAGS is word-split on purpose (the catalog's agent_flags column).
+  # SC2024: the log is opened by the runner, not root, on purpose: it stays the user's file,
+  # and $! must stay sudo's pid (a `| sudo tee` would make it tee's).
+  # shellcheck disable=SC2086,SC2024
   sudo env RUST_LOG=info "$AGENT" run --standalone --content-dir "$W/content" \
     --alerts "$W/alerts.ndjson" --events "$W/events.jsonl" ${C_FLAGS[$n]} > "$W/agent.log" 2>&1 &
   sudo_pid=$!
-  for i in $(seq 1 90); do
+  for _ in $(seq 1 90); do
     grep -q 'sensor-linux: listening' "$W/agent.log" 2>/dev/null && break
     alive "$sudo_pid" || break
     sleep 1
@@ -249,7 +251,7 @@ run_one() {
   # Settle: the catalog's delay, then until the alert file has been quiet for 2 s (max 20 s).
   sleep "${C_SETTLE[$n]:-3}"
   last=-1 quiet=0
-  for i in $(seq 1 20); do
+  for _ in $(seq 1 20); do
     size=$(stat -c %s "$W/alerts.ndjson" 2>/dev/null || echo 0)
     if [ "$size" = "$last" ]; then quiet=$((quiet + 1)); [ "$quiet" -ge 2 ] && break; else quiet=0; fi
     last=$size; sleep 1
@@ -299,6 +301,8 @@ done
 TOTAL=$(( $(date +%s) - T0 ))
 
 # --- report ----------------------------------------------------------------------------
+# The guest's, not the host's: there is nothing for shellcheck to follow.
+# shellcheck source=/dev/null
 . /etc/os-release
 DATE=$(date -u +%F)
 REPORT=$STATE/reports/$DATE-$MACHINE.md
