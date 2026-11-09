@@ -21,7 +21,7 @@ the rig can check without a VM. Run it before opening a pull request. It needs t
   the one `provisioning/agent-build.sh` computes in bash, `tests/test_riglib.py` the
   exit codes of `tools/riglib.py`, which both tools share),
   and `tests/test_agent_build.py` what `provisioning/agent-build.sh` runs, refuses and
-  records in `build-info`, against a fake guest (skipped on Windows);
+  records in `build-info`, against a fake guest (Linux only);
 - every shell script parses, and is shellcheck-clean when `shellcheck` is installed;
 - `machines.json` holds what the Vagrantfile and `rig.py` rely on: a `linux` or `windows`
   guest, a non-empty `boxes` of known providers, `prep` scripts that exist in `provisioning/`,

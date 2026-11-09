@@ -78,7 +78,7 @@ preflight() {
   ebpf_toolchain=$(tr -d '[:space:]' < "$EBPF_TOOLCHAIN_FILE")
   # Listed first, not piped: `grep -q` stops reading at the first match, and pipefail then
   # reports rustup's failed writes as a missing toolchain.
-  toolchains=$(rustup toolchain list)
+  toolchains=$(rustup toolchain list) || die "probe toolchain $ebpf_toolchain missing (vagrant provision <machine>)"
   grep -q "^$ebpf_toolchain" <<<"$toolchains" || die "probe toolchain $ebpf_toolchain missing (vagrant provision <machine>)"
 }
 

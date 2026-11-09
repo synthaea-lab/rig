@@ -13,6 +13,7 @@ import hashlib
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -48,7 +49,7 @@ exec "$@"
 }
 
 
-@unittest.skipIf(os.name == "nt", "agent-build.sh runs in Linux guests only")
+@unittest.skipUnless(sys.platform.startswith("linux"), "agent-build.sh runs in Linux guests only")
 class FakeGuest(unittest.TestCase):
     """A fake Linux guest in a scratch directory, where agent-build.sh can run end to end."""
 
@@ -241,6 +242,7 @@ class StaticRuntime(FakeGuest):
         self.assert_stopped(self.run_build("--ort", "static", "--offline"),
                             "agent-build: --ort static clones and builds onnxruntime: not possible offline")
 
+
 class OfflineBundle(FakeGuest):
     def test_builds_from_the_unpacked_bundle(self) -> None:
         bundle = self.make_bundle()
@@ -306,6 +308,10 @@ class Refusals(FakeGuest):
     def test_missing_probe_toolchain(self) -> None:
         self.write(self.src / "packaging" / "toolchain" / "ebpf-toolchain.txt", "nightly-2099-01-01\n")
         self.assert_stopped(self.run_build(), "probe toolchain nightly-2099-01-01 missing")
+
+    def test_failing_rustup_reports_the_missing_probe_toolchain(self) -> None:
+        self.write(self.bin / "rustup", "#!/usr/bin/env bash\nexit 127\n", executable=True)
+        self.assert_stopped(self.run_build(), f"probe toolchain {EBPF_TOOLCHAIN} missing (vagrant provision <machine>)")
 
     def test_a_build_without_probes(self) -> None:
         self.env["FAKE_STATUS"] = "agent built without embedded eBPF probes"
