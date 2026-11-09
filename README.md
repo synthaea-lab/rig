@@ -127,6 +127,10 @@ incremental.
 | `down <machine> [--destroy]` | Halts the VM, or deletes it |
 | `check` | Checks what can be checked without a VM: scripts parse and are shellcheck-clean, the runner catalogs cover every scenario, both runners read every sidecar alike, the runner judges the `tests/judge/` snapshots as stated. See [CONTRIBUTING.md](CONTRIBUTING.md) |
 
+Every command exits 0 when it succeeds, 1 when it ran and something failed (a scenario, a
+check, the build) and 2 when it could not run (a usage error, or something missing such as
+vagrant, a checkout or a build); see [CONTRIBUTING.md](CONTRIBUTING.md#exit-codes).
+
 For anything else, use Vagrant directly from `vagrant/`, for example `vagrant ssh debian12`
 (set `RIG_ROOT` there too if the checkouts are not next to the rig).
 

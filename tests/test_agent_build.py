@@ -237,10 +237,10 @@ class StaticRuntime(FakeGuest):
         self.assertEqual(self.log("cargo.log"), "")
 
     def test_static_is_not_possible_offline(self) -> None:
-        self.assert_stopped(self.run_build("--ort", "static", "--offline"), "no offline bundle in the guest")
+        self.assert_stopped(self.run_build("--ort", "static", "--offline"), "no offline bundle in the guest", rc=2)
         self.make_bundle()
         self.assert_stopped(self.run_build("--ort", "static", "--offline"),
-                            "agent-build: --ort static clones and builds onnxruntime: not possible offline")
+                            "agent-build: --ort static clones and builds onnxruntime: not possible offline", rc=2)
 
 
 class OfflineBundle(FakeGuest):
@@ -264,12 +264,12 @@ class OfflineBundle(FakeGuest):
                       result.stdout)
 
     def test_stops_without_a_bundle(self) -> None:
-        self.assert_stopped(self.run_build("--offline"), "agent-build: no offline bundle in the guest")
+        self.assert_stopped(self.run_build("--offline"), "agent-build: no offline bundle in the guest", rc=2)
         self.assertEqual(self.log("cargo.log"), "")
 
     def test_stops_on_a_bundle_for_another_lock(self) -> None:
         self.make_bundle(key="0123456789abcdef")
-        self.assert_stopped(self.run_build("--offline"), "the offline bundle (0123456789abcdef) was made for another")
+        self.assert_stopped(self.run_build("--offline"), "the offline bundle (0123456789abcdef) was made for another", rc=2)
 
 
 class Refusals(FakeGuest):
@@ -277,45 +277,52 @@ class Refusals(FakeGuest):
         self.assert_stopped(self.run_build("--fast"), "agent-build: unknown option --fast (see --help)", rc=2)
 
     def test_unknown_ort_mode(self) -> None:
-        self.assert_stopped(self.run_build("--ort", "shared"), "agent-build: --ort must be auto, prebuilt or static")
+        self.assert_stopped(self.run_build("--ort", "shared"), "agent-build: --ort must be auto, prebuilt or static", rc=2)
 
     def test_ort_without_a_mode(self) -> None:
-        self.assert_stopped(self.run_build("--ort"), "--ort needs auto, prebuilt or static")
+        self.assert_stopped(self.run_build("--ort"), "agent-build: --ort needs auto|prebuilt|static (see --help)", rc=2)
 
     def test_auto_stops_when_the_guest_cannot_link_the_prebuilt_runtime(self) -> None:
         self.set_ort_compat_check(passes=False)
         result = self.run_build()
-        self.assert_stopped(result, "agent-build: this guest cannot link the prebuilt ONNX Runtime")
+        self.assert_stopped(result, "agent-build: this guest cannot link the prebuilt ONNX Runtime", rc=2)
         self.assertIn("  --ort static   build ONNX Runtime from source", result.stderr)
         self.assertEqual(self.log("cargo.log"), "")
 
     def test_unsynced_sources(self) -> None:
         (self.src / "Cargo.toml").unlink()
-        self.assert_stopped(self.run_build(), "Cargo.toml missing - are the sources synced?")
+        self.assert_stopped(self.run_build(), "Cargo.toml missing - are the sources synced?", rc=2)
 
     def test_no_cargo(self) -> None:
         if Path("/usr/bin/cargo").exists() or Path("/bin/cargo").exists():
             self.skipTest("a system cargo is on the fake guest's PATH")
         (self.bin / "cargo").unlink()
-        self.assert_stopped(self.run_build(), "no cargo - the guest is not provisioned")
+        self.assert_stopped(self.run_build(), "no cargo - the guest is not provisioned", rc=2)
 
     def test_no_bpf_linker(self) -> None:
         if shutil.which("bpf-linker", path=f"/usr/bin{os.pathsep}/bin"):
             self.skipTest("a system bpf-linker is on the fake guest's PATH")
         (self.bin / "bpf-linker").unlink()
-        self.assert_stopped(self.run_build(), "bpf-linker not on PATH")
+        self.assert_stopped(self.run_build(), "bpf-linker not on PATH", rc=2)
 
     def test_missing_probe_toolchain(self) -> None:
         self.write(self.src / "packaging" / "toolchain" / "ebpf-toolchain.txt", "nightly-2099-01-01\n")
-        self.assert_stopped(self.run_build(), "probe toolchain nightly-2099-01-01 missing")
+        self.assert_stopped(self.run_build(), "probe toolchain nightly-2099-01-01 missing", rc=2)
 
     def test_failing_rustup_reports_the_missing_probe_toolchain(self) -> None:
         self.write(self.bin / "rustup", "#!/usr/bin/env bash\nexit 127\n", executable=True)
-        self.assert_stopped(self.run_build(), f"probe toolchain {EBPF_TOOLCHAIN} missing (vagrant provision <machine>)")
+        self.assert_stopped(self.run_build(), f"probe toolchain {EBPF_TOOLCHAIN} missing (vagrant provision <machine>)", rc=2)
 
     def test_a_build_without_probes(self) -> None:
         self.env["FAKE_STATUS"] = "agent built without embedded eBPF probes"
         self.assert_stopped(self.run_build(), "the build has no eBPF probes")
+        self.assertFalse((self.state / "build-info").exists())
+
+    def test_a_failed_cargo_build_exits_1_not_cargos_code(self) -> None:
+        self.write(self.bin / "cargo", "#!/usr/bin/env bash\necho 'error[E0425]: oops'\nexit 101\n", executable=True)
+        result = self.run_build()
+        self.assert_stopped(result, f"agent-build: cargo build failed (see {self.state / 'build.log'})")
+        self.assertIn("error[E0425]: oops", (self.state / "build.log").read_text(encoding="utf-8"))
         self.assertFalse((self.state / "build-info").exists())
 
 

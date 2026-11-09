@@ -24,6 +24,11 @@
 # Environment: SYNTHAEA_ROOT (default /synthaea), SYNTHAEA_SOURCE (a description of the
 # sources, set by rig.py: the guest has no .git), RIG_STATE (default
 # ~/synthaea-rig, where build-info and logs go).
+#
+# Exit status (runner/lib/common.sh): 0 when the agent is built with its eBPF probes, 1 when
+# the build fails or yields no usable agent, 2 on a usage error or when the guest is not
+# ready to build (sources not synced, toolchain or offline bundle missing, a prebuilt ONNX
+# Runtime it cannot link).
 set -euo pipefail
 
 ROOT=${SYNTHAEA_ROOT:-/synthaea}
@@ -37,9 +42,10 @@ EBPF_TOOLCHAIN_FILE=$SRC/packaging/toolchain/ebpf-toolchain.txt
 OFFLINE=0 ORT=auto ORT_COMPAT=0 PROFILE=release
 # The cargo features select_ort picks, and what build_agent built.
 FEATURES=() AGENT_BIN="" BUILD_SECONDS=""
+# shellcheck source=runner/lib/common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/../runner/lib/common.sh"
 
 say() { printf '\n== %s ==\n' "$*"; }
-die() { echo "agent-build: $*" >&2; exit 1; }
 
 print_help() {
   sed -n '2,/^set -euo/p' "$0" | sed 's/^# \{0,1\}//;/^set -euo/d'
@@ -49,11 +55,11 @@ parse_args() {
   while [ $# -gt 0 ]; do
     case $1 in
       --offline) OFFLINE=1 ;;
-      --ort) ORT=${2:?--ort needs auto, prebuilt or static}; shift ;;
+      --ort) need_values "$1" "auto|prebuilt|static" "${@:2:1}"; ORT=$2; shift ;;
       --ort-compat) ORT_COMPAT=1 ;;
       --debug) PROFILE=debug ;;
       -h|--help) print_help; exit 0 ;;
-      *) echo "agent-build: unknown option $1 (see --help)" >&2; exit 2 ;;
+      *) die_usage "unknown option $1 (see --help)" ;;
     esac
     shift
   done
@@ -72,14 +78,14 @@ load_guest_environment() {
 
 preflight() {
   local ebpf_toolchain toolchains
-  [ -f "$SRC/Cargo.toml" ] || die "$SRC/Cargo.toml missing - are the sources synced? (vagrant rsync <machine>)"
-  command -v cargo >/dev/null || die "no cargo - the guest is not provisioned (vagrant provision <machine>)"
-  command -v bpf-linker >/dev/null || die "bpf-linker not on PATH: the build would silently drop the eBPF probes (vagrant provision <machine>)"
+  [ -f "$SRC/Cargo.toml" ] || die_env "$SRC/Cargo.toml missing - are the sources synced? (vagrant rsync <machine>)"
+  command -v cargo >/dev/null || die_env "no cargo - the guest is not provisioned (vagrant provision <machine>)"
+  command -v bpf-linker >/dev/null || die_env "bpf-linker not on PATH: the build would silently drop the eBPF probes (vagrant provision <machine>)"
   ebpf_toolchain=$(tr -d '[:space:]' < "$EBPF_TOOLCHAIN_FILE")
   # Listed first, not piped: `grep -q` stops reading at the first match, and pipefail then
   # reports rustup's failed writes as a missing toolchain.
-  toolchains=$(rustup toolchain list) || die "probe toolchain $ebpf_toolchain missing (vagrant provision <machine>)"
-  grep -q "^$ebpf_toolchain" <<<"$toolchains" || die "probe toolchain $ebpf_toolchain missing (vagrant provision <machine>)"
+  toolchains=$(rustup toolchain list) || die_env "probe toolchain $ebpf_toolchain missing (vagrant provision <machine>)"
+  grep -q "^$ebpf_toolchain" <<<"$toolchains" || die_env "probe toolchain $ebpf_toolchain missing (vagrant provision <machine>)"
 }
 
 # An earlier hand-rolled offline build may have left a global source replacement behind,
@@ -122,10 +128,10 @@ expected_bundle_key() {
 
 verify_offline_bundle() {
   local want have
-  [ -f "$OFFLINE_DIR/KEY" ] || die "no offline bundle in the guest: run the build from the host with --offline (it pushes one)"
+  [ -f "$OFFLINE_DIR/KEY" ] || die_env "no offline bundle in the guest: run the build from the host with --offline (it pushes one)"
   want=$(expected_bundle_key)
   have=$(cat "$OFFLINE_DIR/KEY")
-  [ "$want" = "$have" ] || die "the offline bundle ($have) was made for another Cargo.lock or probe toolchain ($want): re-run from the host with --offline"
+  [ "$want" = "$have" ] || die_env "the offline bundle ($have) was made for another Cargo.lock or probe toolchain ($want): re-run from the host with --offline"
 }
 
 use_offline_cargo_home() {
@@ -160,7 +166,7 @@ on older distros"). Pick one:
   --ort-compat   Debian 12 / Ubuntu 22.04: newer glibc + libstdc++ from the next release (fast)
   --ort static   build ONNX Runtime from source with this distro's compiler (slow, ~1 GB)
 MSG
-  exit 1
+  exit 2
 }
 
 # The contract of ort-static-link-flags.sh: on stdout, shell to eval (an
@@ -174,7 +180,7 @@ apply_static_link_flags() {
 }
 
 prepare_static_ort() {
-  [ "$OFFLINE" = 0 ] || die "--ort static clones and builds onnxruntime: not possible offline"
+  [ "$OFFLINE" = 0 ] || die_usage "--ort static clones and builds onnxruntime: not possible offline"
   export ORT_LIB_LOCATION=${ORT_LIB_LOCATION:-$SRC/onnxruntime/build/Linux/Release}
   if [ ! -f "$ORT_LIB_LOCATION/libonnxruntime_session.a" ]; then
     echo "building onnxruntime from source into $SRC/onnxruntime (rsync leaves it alone)"
@@ -199,7 +205,7 @@ select_ort() {
   case $ORT in
     prebuilt) echo "prebuilt (pyke, ort-sys download-binaries)" ;;
     static) prepare_static_ort ;;
-    *) die "--ort must be auto, prebuilt or static" ;;
+    *) die_usage "--ort must be auto, prebuilt or static" ;;
   esac
 }
 
@@ -208,7 +214,8 @@ build_agent() {
   if [ "$PROFILE" = debug ]; then profile_flag=(); fi
   say "cargo build ($PROFILE${FEATURES[*]:+ ${FEATURES[*]}}, ${CARGO_BUILD_JOBS:-all} jobs)"
   start=$(date +%s)
-  (cd "$SRC" && cargo build "${profile_flag[@]}" -p agent "${FEATURES[@]}") 2>&1 | tee "$STATE/build.log"
+  (cd "$SRC" && cargo build "${profile_flag[@]}" -p agent "${FEATURES[@]}") 2>&1 | tee "$STATE/build.log" \
+    || die "cargo build failed (see $STATE/build.log)"
   BUILD_SECONDS=$(( $(date +%s) - start ))
   AGENT_BIN=${CARGO_TARGET_DIR:-$SRC/target}/$PROFILE/agent
   [ -x "$AGENT_BIN" ] || die "no binary at $AGENT_BIN"

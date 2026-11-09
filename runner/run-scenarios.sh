@@ -36,7 +36,9 @@
 #   SKIP        a need is missing on this guest (command, LSM, kernel version)
 # Follow-up alerts (FOLLOW_UPS below: the escalation record the agent adds on top of every
 # detection) are listed but never judged, unless a sidecar expects them.
-# Exit status: 0 when nothing FAILed or ERRORed.
+# Exit status (runner/lib/common.sh): 0 when nothing FAILed or ERRORed, 1 when something did
+# (or --check found a problem), 2 on a usage error or when the guest is not ready to run
+# (no build, no rules checkout, no passwordless sudo).
 #
 # Environment: SYNTHAEA_ROOT (default /synthaea), RIG_STATE (default ~/synthaea-rig: reads
 # build-info from agent-build.sh, writes runs/ and reports/), SYNTHAEA_SOURCE (what the
@@ -46,6 +48,8 @@ set -uo pipefail
 export LC_ALL=C.UTF-8
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=runner/lib/common.sh
+. "$HERE/lib/common.sh"
 ROOT=${SYNTHAEA_ROOT:-/synthaea}
 STATE=${RIG_STATE:-$HOME/synthaea-rig}
 CATALOG=$HERE/scenarios.conf
@@ -59,18 +63,17 @@ while [ $# -gt 0 ]; do
   case $1 in
     --list) MODE=list ;;
     --check) MODE=check ;;
-    --expectations) MODE=expectations; SIDECAR=${2:?}; shift ;;
-    --judge) MODE=judge; SNAPSHOT=${2:?}; SIDECAR=${3:?}; SCRIPT_RC=${4:?}; shift 3 ;;
-    --machine) MACHINE=${2:?}; shift ;;
-    --scenarios) SCEN_DIR=${2:?}; shift ;;
+    --expectations) need_values "$1" SIDECAR "${@:2:1}"; MODE=expectations; SIDECAR=$2; shift ;;
+    --judge) need_values "$1" "SNAPSHOT SIDECAR RC" "${@:2:3}"; MODE=judge; SNAPSHOT=$2; SIDECAR=$3; SCRIPT_RC=$4; shift 3 ;;
+    --machine) need_values "$1" NAME "${@:2:1}"; MACHINE=$2; shift ;;
+    --scenarios) need_values "$1" DIR "${@:2:1}"; SCEN_DIR=$2; shift ;;
     -h|--help) sed -n '2,/^set -uo/p' "$0" | sed 's/^# \{0,1\}//;/^set -uo/d'; exit 0 ;;
-    -*) echo "run-scenarios: unknown option $1 (see --help)" >&2; exit 2 ;;
+    -*) die_usage "unknown option $1 (see --help)" ;;
     *) NAMES+=("$1") ;;
   esac
   shift
 done
 
-die() { echo "run-scenarios: $*" >&2; exit 1; }
 clip() { local l; while IFS= read -r l; do printf '%s\n' "${l:0:$1}"; done; }   # cut -c splits UTF-8
 trim() { local s=$1; s=${s#"${s%%[![:space:]]*}"}; s=${s%"${s##*[![:space:]]}"}; [ "$s" = - ] && s=""; printf '%s' "$s"; }
 
@@ -155,7 +158,7 @@ judge() {
 
 check() {
   local bad=0 n f
-  [ -d "$SCEN_DIR" ] || die "no scenarios directory at $SCEN_DIR"
+  [ -d "$SCEN_DIR" ] || die_env "no scenarios directory at $SCEN_DIR"
   for n in "${ORDER[@]}"; do
     [ -f "$SCEN_DIR/$n.sh" ] || { echo "catalog: $n has no $SCEN_DIR/$n.sh"; bad=1; }
     if [ -f "$SCEN_DIR/$n.yaml" ]; then
@@ -187,19 +190,19 @@ fi
 
 # --- preflight -------------------------------------------------------------------------
 check >/dev/null || { check; die "fix the catalog first"; }
-[ -f "$STATE/build-info" ] || die "no $STATE/build-info: build first (python rig.py build <machine>)"
+[ -f "$STATE/build-info" ] || die_env "no $STATE/build-info: build first (python rig.py build <machine>)"
 AGENT=$(sed -n 's/^agent_bin=//p' "$STATE/build-info")
-[ -x "$AGENT" ] || die "agent binary $AGENT missing: build first (python rig.py build <machine>)"
-[ -f /etc/synthaea/agent.toml ] || die "/etc/synthaea/agent.toml missing (agent-build.sh installs it)"
-[ -d "$ROOT/rules/sigma" ] || die "$ROOT/rules missing: the run uses the rules checkout as content"
-sudo -n true 2>/dev/null || die "needs passwordless sudo (the lab boxes have it)"
+[ -x "$AGENT" ] || die_env "agent binary $AGENT missing: build first (python rig.py build <machine>)"
+[ -f /etc/synthaea/agent.toml ] || die_env "/etc/synthaea/agent.toml missing (agent-build.sh installs it)"
+[ -d "$ROOT/rules/sigma" ] || die_env "$ROOT/rules missing: the run uses the rules checkout as content"
+sudo -n true 2>/dev/null || die_env "needs passwordless sudo (the lab boxes have it)"
 # The agent's local control socket lives here; without it every run logs an IPC warning.
 sudo install -d -m 0755 /run/synthaea
 
 if [ ${#NAMES[@]} -eq 0 ]; then
   for n in "${ORDER[@]}"; do [ "${C_SET[$n]}" = default ] && NAMES+=("$n"); done
 fi
-for n in "${NAMES[@]}"; do [ -n "${C_SET[$n]:-}" ] || die "unknown scenario '$n' (--list shows them)"; done
+for n in "${NAMES[@]}"; do [ -n "${C_SET[$n]:-}" ] || die_usage "unknown scenario '$n' (--list shows them)"; done
 
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 RUN=$STATE/runs/$STAMP
@@ -413,4 +416,5 @@ cell() { local s=${1:-—}; s=${s//|/\\|}; printf '%s' "$s"; }
 echo
 echo "== $summary in $(fmt_time "$TOTAL")"
 echo "REPORT: $REPORT"
+# The exit status: 1 when a scenario FAILed or ERRORed.
 [ -z "${TALLY[FAIL]:-}" ] && [ -z "${TALLY[ERROR]:-}" ]

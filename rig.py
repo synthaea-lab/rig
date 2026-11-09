@@ -33,9 +33,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from tools.riglib import (
+    EXIT_FAILED,
     RIG,
     ROOT,
     VAGRANT_DIR,
+    CheckFailed,
     RigError,
     echo_vagrant,
     provider,
@@ -425,7 +427,9 @@ def cmd_run(name: str, scenarios: list[str], dry_run: bool = False) -> int:
 
     rc = vagrant_stream(*args, on_line=note_report)
     if not report:
-        raise RigError("the runner wrote no report (see its output above)")
+        # The runner stopped before its report: keep its exit code, which says whether the
+        # guest was not ready (2) or the catalog check failed (1); without one, a run failed.
+        raise RigError("the runner wrote no report (see its output above)", rc or EXIT_FAILED)
     print(f"report: {fetch_report(name, guest, report)}")
     return rc
 
@@ -468,11 +472,24 @@ def cmd_check() -> None:
     bash = shutil.which("bash")
     if not bash:
         raise RigError("bash is needed for the checks (Git for Windows ships one)")
+    try:
+        run_checks(bash)
+    except subprocess.CalledProcessError as err:
+        # A check that runs a script fails through its exit code; bash -n, for one, exits 2 on
+        # a syntax error. Whatever the code, a check failed.
+        raise CheckFailed(f"{shlex.join(map(str, err.cmd))} exited {err.returncode} (above)") from err
+
+
+def run_checks(bash: str) -> None:
+    """The checks of cmd_check, in order; the first that fails raises."""
     check_unit_tests()
-    scripts = sorted([*RIG.glob("*.sh"), *RIG.glob("*/*.sh")])
+    scripts = sorted([*RIG.glob("*.sh"), *RIG.glob("*/*.sh"), *RIG.glob("runner/lib/*.sh")])
     for script in scripts:
         subprocess.run([bash, "-n", str(script.relative_to(RIG))], cwd=RIG, check=True)
-    catalog = check_catalog(MACHINES_JSON)
+    try:
+        catalog = check_catalog(MACHINES_JSON)
+    except RigError as err:
+        raise CheckFailed(str(err)) from err
     print(f"rig: {len(scripts)} scripts parse, machines.json is valid ({len(catalog)} machines)", flush=True)
     check_shellcheck_clean(scripts)
     scenarios = ROOT / "scenarios" / "scenarios"
@@ -508,7 +525,7 @@ def check_shellcheck_clean(scripts: list[Path]) -> None:
     found = subprocess.run([shellcheck, *(script.relative_to(RIG).as_posix() for script in scripts)],
                            cwd=RIG, check=False)
     if found.returncode != 0:
-        raise RigError("shellcheck has findings in the scripts (above)")
+        raise CheckFailed("shellcheck has findings in the scripts (above)")
     print(f"rig: {len(scripts)} scripts are shellcheck-clean", flush=True)
 
 
@@ -526,7 +543,7 @@ def check_runners_read_sidecars_alike(bash: str, scenarios: Path) -> None:
     wrong = [f"  {fixture.name}: reads {from_bash[fixture]}, states {stated_expectations(fixture)}"
              for fixture in fixtures if from_bash[fixture] != stated_expectations(fixture)]
     if wrong:
-        raise RigError("run-scenarios.sh misreads these sidecar fixtures:\n" + "\n".join(wrong))
+        raise CheckFailed("run-scenarios.sh misreads these sidecar fixtures:\n" + "\n".join(wrong))
     print(f"runners: run-scenarios.sh reads the {len(fixtures)} sidecar fixtures as stated", flush=True)
     pwsh = shutil.which("pwsh")
     if not pwsh:
@@ -536,7 +553,7 @@ def check_runners_read_sidecars_alike(bash: str, scenarios: Path) -> None:
     drift = [f"  {sidecar.name}: bash {from_bash[sidecar]} vs PowerShell {from_pwsh[sidecar]}"
              for sidecar in sidecars if from_bash[sidecar] != from_pwsh[sidecar]]
     if drift:
-        raise RigError("the runners read these sidecars differently:\n" + "\n".join(drift))
+        raise CheckFailed("the runners read these sidecars differently:\n" + "\n".join(drift))
     print(f"runners: bash and PowerShell read {len(sidecars)} sidecars alike", flush=True)
 
 
@@ -580,8 +597,8 @@ def check_runner_judges_as_stated(bash: str) -> None:
         if judged != [line for line in stated if not line.startswith("#")]:
             wrong.append(f"  {case.name}: judged {judged}")
     if wrong:
-        raise RigError("run-scenarios.sh judges these tests/judge cases otherwise than stated:\n"
-                       + "\n".join(wrong))
+        raise CheckFailed("run-scenarios.sh judges these tests/judge cases otherwise than stated:\n"
+                          + "\n".join(wrong))
     print(f"runner: run-scenarios.sh judges the {len(cases)} snapshot fixtures as stated", flush=True)
 
 
@@ -608,7 +625,7 @@ def check_runner_judges_every_sidecar(bash: str, scenarios: Path) -> None:
             if verdict_status(bash_verdict(bash, snapshot, sidecar, 0)) != "FAIL":
                 wrong.append(f"  {sidecar.name}: does not FAIL with {over}")
     if wrong:
-        raise RigError("run-scenarios.sh misjudges these sidecars at their bounds:\n" + "\n".join(wrong))
+        raise CheckFailed("run-scenarios.sh misjudges these sidecars at their bounds:\n" + "\n".join(wrong))
     print(f"runner: run-scenarios.sh judges {len(sidecars)} sidecars at their bounds", flush=True)
 
 

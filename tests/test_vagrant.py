@@ -169,11 +169,15 @@ class RunCommand(FakeVagrant):
             f"report: {dest}"])
         rig.source_info.assert_called_once_with()
 
-    def test_no_report_line_is_a_rig_error(self) -> None:
-        self.reply(1, out="crashed\n", rc=2)
-        with redirect_stdout(StringIO()), self.assertRaisesRegex(rig.RigError, "wrote no report"):
-            rig.cmd_run("debian12", [])
-        self.assertEqual(len(self.calls()), 1)
+    def test_no_report_line_is_a_rig_error_with_the_runners_code(self) -> None:
+        for runner_rc, exit_code in ((2, 2), (1, 1), (0, 1)):
+            with self.subTest(runner_rc=runner_rc):
+                (self.dir / "calls.log").unlink(missing_ok=True)
+                self.reply(1, out="stopped\n", rc=runner_rc)
+                with redirect_stdout(StringIO()), self.assertRaisesRegex(rig.RigError, "wrote no report") as raised:
+                    rig.cmd_run("debian12", [])
+                self.assertEqual(raised.exception.exit_code, exit_code)
+                self.assertEqual(len(self.calls()), 1)
 
 
 if __name__ == "__main__":
