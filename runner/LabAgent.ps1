@@ -12,7 +12,9 @@
 
   Every function acts only on what it is given: no process is found by name and no
   script-scope variable is set, so a caller that needs to stop agents in a `finally` keeps
-  the handles itself. ASCII only, Windows PowerShell 5.1 compatible.
+  the handles itself. ASCII only, Windows PowerShell 5.1 compatible, strict-mode clean: a
+  dot-sourced file sets no mode of its own (it would be the caller's), so tests/lab-agent.ps1
+  runs it under Set-StrictMode -Version Latest, as run-scenarios.ps1 does.
 #>
 
 function New-LabAgentConfig {

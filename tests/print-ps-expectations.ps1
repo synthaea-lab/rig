@@ -8,13 +8,15 @@
     the script needs a lab guest) and runs it on each sidecar given, with an empty
     catalog so the `expect` column fallback never applies: this compares the
     sidecar parsers alone. Prints one `<sidecar>|technique|min_count|tolerance`
-    line per expected detection. `python rig.py check` runs this:
+    line per expected detection, under strict mode as in the runner.
+    `python rig.py check` runs this:
 
         pwsh -File tests/print-ps-expectations.ps1 <sidecar.yaml> ...
 #>
 param(
     [Parameter(Mandatory, ValueFromRemainingArguments = $true)][string[]]$Sidecar
 )
+Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $Script = Join-Path (Split-Path -Parent $PSScriptRoot) "runner" "run-scenarios.ps1"
 

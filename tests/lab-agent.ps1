@@ -9,8 +9,10 @@
     shared runner/lab-agent.toml.template). Where /bin/sh exists, Start-LabAgent,
     Wait-AgentEvents and Stop-LabAgent then drive a fake agent: the command line it gets,
     ready on its first event, not ready when it exits first, and a stop that kills it by
-    pid and can be repeated. `python rig.py check` runs this.
+    pid and can be repeated. All under strict mode (Latest), as run-scenarios.ps1 runs them.
+    `python rig.py check` runs this.
 #>
+Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $rig = Split-Path -Parent $PSScriptRoot
 . (Join-Path $rig "runner/LabAgent.ps1")
