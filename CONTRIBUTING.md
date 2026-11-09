@@ -14,6 +14,8 @@ the rig can check without a VM. Run it before opening a pull request. It needs t
 [scenarios](https://github.com/synthaea-lab/scenarios) checkout next to the rig and bash
 (on Windows, the one from Git for Windows). It verifies that:
 
+- the Python unit tests in `tests/test_*.py` pass (stdlib `unittest`; `tests/test_rig.py`
+  pins the command lines `rig.py` sends to a guest);
 - every shell script parses, and is shellcheck-clean when `shellcheck` is installed;
 - `machines.json` parses;
 - the runner catalogs (`runner/scenarios.conf`, `runner/scenarios-windows.conf`) have a row
@@ -31,6 +33,8 @@ the rig can check without a VM. Run it before opening a pull request. It needs t
 A check that cannot run because a tool is missing prints `skipped:` and the reason. A
 change that touches the runners or provisioning is best also run on at least one VM with
 `python3 rig.py run <machine>`.
+`python3 rig.py build|run <machine> ... --dry-run` prints the command the rig would send
+to the guest without syncing or running anything.
 
 `.gitattributes` fixes line endings: LF for shell scripts and the catalogs, which run inside
 Linux guests, LF for the `tests/judge/` fixtures, which the bash runner reads on Windows too,
