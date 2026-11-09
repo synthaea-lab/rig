@@ -36,6 +36,7 @@ echo "   Compiling agent"
     "rustup": f'''#!/usr/bin/env bash
 echo "{EBPF_TOOLCHAIN}-x86_64-unknown-linux-gnu"
 echo "stable-x86_64-unknown-linux-gnu (default)"
+for ((i = 0; i < ${{FAKE_MORE_TOOLCHAINS:-0}}; i++)); do echo "1.$i-x86_64-unknown-linux-gnu"; done
 ''',
     "rustc": '#!/usr/bin/env bash\necho "rustc 1.99.0 (fake)"\n',
     "bpf-linker": "#!/usr/bin/env bash\n",
@@ -162,6 +163,12 @@ class DefaultBuild(FakeGuest):
             f"install -D -m 0644 {self.src}/crates/config/data/default-agent.toml /etc/synthaea/agent.toml",
             f"{bin_path} status",
         ])
+
+    def test_finds_the_probe_toolchain_at_the_top_of_a_long_list(self) -> None:
+        # A grep that stops reading at the first match makes rustup's later writes fail,
+        # and pipefail used to report that as a missing toolchain.
+        self.env["FAKE_MORE_TOOLCHAINS"] = "20000"
+        self.assert_built(self.run_build())
 
     def test_debug_builds_without_release(self) -> None:
         self.assert_built(self.run_build("--debug"))

@@ -71,12 +71,15 @@ load_guest_environment() {
 }
 
 preflight() {
-  local ebpf_toolchain
+  local ebpf_toolchain toolchains
   [ -f "$SRC/Cargo.toml" ] || die "$SRC/Cargo.toml missing - are the sources synced? (vagrant rsync <machine>)"
   command -v cargo >/dev/null || die "no cargo - the guest is not provisioned (vagrant provision <machine>)"
   command -v bpf-linker >/dev/null || die "bpf-linker not on PATH: the build would silently drop the eBPF probes (vagrant provision <machine>)"
   ebpf_toolchain=$(tr -d '[:space:]' < "$EBPF_TOOLCHAIN_FILE")
-  rustup toolchain list | grep -q "^$ebpf_toolchain" || die "probe toolchain $ebpf_toolchain missing (vagrant provision <machine>)"
+  # Listed first, not piped: `grep -q` stops reading at the first match, and pipefail then
+  # reports rustup's failed writes as a missing toolchain.
+  toolchains=$(rustup toolchain list)
+  grep -q "^$ebpf_toolchain" <<<"$toolchains" || die "probe toolchain $ebpf_toolchain missing (vagrant provision <machine>)"
 }
 
 # An earlier hand-rolled offline build may have left a global source replacement behind,
