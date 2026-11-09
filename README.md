@@ -77,10 +77,10 @@ On every host: Python 3.10 or later (standard library only), git and
 
 | Host | Provider | Setup |
 | --- | --- | --- |
-| Linux x86_64 | `libvirt` | KVM and libvirt (`apt install qemu-kvm libvirt-daemon-system libvirt-dev`, or your distribution's packages), `vagrant plugin install vagrant-libvirt`, your user in the `libvirt` group, `rsync` |
-| Windows | `hyperv` | Once, in an elevated PowerShell: `vagrant\hyperv\bootstrap.ps1` (Hyper-V, the *Hyper-V Administrators* group, Vagrant, the Default Switch). An `rsync` on `PATH`: Git for Windows ships one in `C:\Program Files\Git\usr\bin`, or `winget install cwRsync`. Every command that touches a VM runs from an elevated shell |
-| macOS, Apple Silicon | `qemu` | `brew install qemu vagrant`, `vagrant plugin install vagrant-qemu`. arm64 guests only: no Windows and no Arch |
-| Any x86_64 host | `virtualbox` | VirtualBox 7.x, selected with `RIG_PROVIDER=virtualbox` |
+| Linux x86_64 | `libvirt` | KVM and libvirt (`sudo apt install qemu-kvm libvirt-daemon-system libvirt-dev`, or your distribution's packages), `vagrant plugin install vagrant-libvirt`, your user in the `libvirt` group, `rsync` |
+| Windows | `hyperv` | Once, in an elevated PowerShell from the rig: `powershell -ExecutionPolicy Bypass -File vagrant\hyperv\bootstrap.ps1` (Hyper-V, the *Hyper-V Administrators* group, Vagrant, the Default Switch). An `rsync` on `PATH`: Git for Windows ships one in `C:\Program Files\Git\usr\bin`, or `winget install cwRsync`. Every command that touches a VM runs from an elevated shell |
+| macOS, Apple Silicon | `qemu` | `brew install qemu`, `vagrant plugin install vagrant-qemu`. arm64 guests only: no Windows and no Arch |
+| Intel macOS, or any x86_64 host | `virtualbox` | VirtualBox 7.x. The default on Intel macOS; elsewhere, select it with `RIG_PROVIDER=virtualbox` |
 
 `RIG_PROVIDER` overrides the provider chosen for the host. Each Linux VM takes about 20 GB
 of disk once built and 6 GB of RAM by default (`RIG_MEMORY_MB` changes it), so on a 16 GB
@@ -125,7 +125,7 @@ incremental.
 | `run <machine> [scenario ...]` | Re-syncs, then runs each scenario (default: every safe, self-contained one) against a fresh standalone agent and copies the report to `reports/`. Exits non-zero when a scenario fails or errors |
 | `report [machine]` | Prints the newest report, of one machine if given |
 | `down <machine> [--destroy]` | Halts the VM, or deletes it |
-| `check` | Checks what can be checked without a VM: scripts parse, the runner catalogs cover every scenario, every sidecar is readable. See [CONTRIBUTING.md](CONTRIBUTING.md) |
+| `check` | Checks what can be checked without a VM: scripts parse and are shellcheck-clean, the runner catalogs cover every scenario, both runners read every sidecar alike. See [CONTRIBUTING.md](CONTRIBUTING.md) |
 
 For anything else, use Vagrant directly from `vagrant/`, for example `vagrant ssh debian12`
 (set `RIG_ROOT` there too if the checkouts are not next to the rig).
@@ -219,8 +219,6 @@ an hour and 1 GB and needs CMake 3.28 or later.
 - [docs/provisioning.md](docs/provisioning.md): the in-guest scripts
 - [docs/offline-builds.md](docs/offline-builds.md): offline build bundles
 - [docs/troubleshooting.md](docs/troubleshooting.md): common failures and their fixes
-- [docs/sysmon-capture.md](docs/sysmon-capture.md): capturing Sysmon telemetry in a Windows
-  lab VM
 - [Synthaea documentation](https://www.synthaea.com/en/docs/overview): the project as a whole
 
 ## Contributing

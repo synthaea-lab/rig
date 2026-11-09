@@ -14,9 +14,9 @@ provisioning scripts that detect on their own whether they apply.
 | Host | Provider | Install |
 | --- | --- | --- |
 | Linux (x86_64, KVM) | `libvirt` | libvirt and qemu-kvm, `vagrant`, `vagrant plugin install vagrant-libvirt`; your user in the `libvirt` group |
-| Windows (Hyper-V) | `hyperv` | Once, elevated: `hyperv\bootstrap.ps1` (Hyper-V feature, *Hyper-V Administrators*, Vagrant, Default Switch); an `rsync` on `PATH` (Git for Windows ships one, or `winget install cwRsync`) |
-| macOS, Apple Silicon | `qemu` | `brew install qemu`, `vagrant`, `vagrant plugin install vagrant-qemu`; arm64 guests only |
-| Any x86_64 host | `virtualbox` | VirtualBox 7.x and `vagrant`; optional, for hosts where the native provider is not an option |
+| Windows (Hyper-V) | `hyperv` | Once, in an elevated PowerShell from this directory: `powershell -ExecutionPolicy Bypass -File hyperv\bootstrap.ps1` (Hyper-V feature, *Hyper-V Administrators*, Vagrant, Default Switch); an `rsync` on `PATH` (Git for Windows ships one, or `winget install cwRsync`) |
+| macOS, Apple Silicon | `qemu` | `brew install qemu`, [Vagrant](https://developer.hashicorp.com/vagrant/install), `vagrant plugin install vagrant-qemu`; arm64 guests only |
+| Intel macOS, or any x86_64 host | `virtualbox` | VirtualBox 7.x and `vagrant`; the default on Intel macOS, optional elsewhere (`RIG_PROVIDER=virtualbox`) |
 
 `rig.py` picks the provider for the host (`RIG_PROVIDER` overrides). Plain Vagrant works the
 same from this directory, for example `vagrant up debian12 --provider libvirt`, with
