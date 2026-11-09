@@ -97,6 +97,7 @@ if (-not (Test-Path -LiteralPath $CommonScript)) {
 }
 . $CommonScript
 . (Join-Path (Split-Path -Parent $PSScriptRoot) "LabAgent.ps1")
+. (Join-Path $PSScriptRoot "../../powershell/RigCommon.ps1")
 
 # The agent's ETW providers (agent\crates\sensors\windows\etw\src\providers.rs).
 $AgentProviders = [ordered]@{
@@ -384,10 +385,7 @@ function Invoke-RootCausePhase([int[]]$ProbeCounts) {
 
 # -- Setup -------------------------------------------------------------------
 
-$principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
-if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    throw "Run this script from an elevated PowerShell: the ETW kernel providers need Administrator."
-}
+Assert-Administrator -Reason "the ETW kernel providers need Administrator"
 if (-not ($SkipOrphans -and $SkipRootCause -and $SkipLongPath -and $SkipMarkRemoval) -and -not (Test-Path $AgentExe)) {
     throw "agent.exe not found at $AgentExe - build it first (cargo build --release -p agent) or pass -AgentExe"
 }

@@ -45,24 +45,15 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "../../powershell/RigCommon.ps1")
 
-$principal = New-Object Security.Principal.WindowsPrincipal(
-    [Security.Principal.WindowsIdentity]::GetCurrent())
-if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    throw "Run from an elevated PowerShell (the Security log needs it)."
-}
+Assert-Administrator -Reason "the Security log needs it"
 
 if (-not $OutDir) {
     $OutDir = Join-Path (Get-Location) ("rdp-observe-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
 }
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $summary = Join-Path $OutDir "summary.txt"
-
-function Say {
-    param([string]$Text = "")
-    Write-Host $Text
-    Add-Content -Path $summary -Value $Text
-}
 
 function Get-DataField {
     # EventData/Data[@Name] of an event, or "" when absent.
@@ -82,30 +73,30 @@ function Get-RdpSettings {
     return @{ Deny = $deny; Nla = $nla; Layer = $layer; Port = $port }
 }
 
-Say "# RDP event observation (#285 / #700)"
-Say ("Date (UTC): " + (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss"))
-Say ("Host: " + $env:COMPUTERNAME)
+Write-Summary $summary "# RDP event observation (#285 / #700)"
+Write-Summary $summary ("Date (UTC): " + (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss"))
+Write-Summary $summary ("Host: " + $env:COMPUTERNAME)
 $os = Get-CimInstance Win32_OperatingSystem
-Say ("OS: " + $os.Caption + " build " + $os.BuildNumber)
+Write-Summary $summary ("OS: " + $os.Caption + " build " + $os.BuildNumber)
 $s = Get-RdpSettings
 $nlaText = if ($s.Nla -eq 1) { "ON (NLA required)" } elseif ($s.Nla -eq 0) { "OFF (NLA not required)" } else { "unknown" }
-Say ("Remote Desktop connections allowed: " + $(if ($s.Deny -eq 0) { "yes" } elseif ($s.Deny -eq 1) { "NO (fDenyTSConnections=1)" } else { "unknown" }))
-Say ("NLA (UserAuthentication): " + $nlaText + "   SecurityLayer: " + $s.Layer + "   port: " + $s.Port)
-Say ""
+Write-Summary $summary ("Remote Desktop connections allowed: " + $(if ($s.Deny -eq 0) { "yes" } elseif ($s.Deny -eq 1) { "NO (fDenyTSConnections=1)" } else { "unknown" }))
+Write-Summary $summary ("NLA (UserAuthentication): " + $nlaText + "   SecurityLayer: " + $s.Layer + "   port: " + $s.Port)
+Write-Summary $summary ""
 
 if ($SinceMinutes -gt 0) {
     $start = (Get-Date).AddMinutes(-$SinceMinutes)
-    Say ("Analysing the last " + $SinceMinutes + " minutes.")
+    Write-Summary $summary ("Analysing the last " + $SinceMinutes + " minutes.")
 }
 else {
     $start = Get-Date
-    Say "Make the connections now, from ANOTHER machine or with mstsc:"
-    Say "  1. ONE connection with a WRONG password (stop at the refusal)"
-    Say "  2. ONE connection with the right password, then sign out"
+    Write-Summary $summary "Make the connections now, from ANOTHER machine or with mstsc:"
+    Write-Summary $summary "  1. ONE connection with a WRONG password (stop at the refusal)"
+    Write-Summary $summary "  2. ONE connection with the right password, then sign out"
     Read-Host "Press Enter here when both are done" | Out-Null
 }
 $end = Get-Date
-Say ""
+Write-Summary $summary ""
 
 $rows = New-Object System.Collections.ArrayList
 
@@ -116,7 +107,7 @@ function Add-Events {
     }
     catch {
         if ($_.FullyQualifiedErrorId -like "*NoMatchingEventsFound*") { return }
-        Say ("  [" + $Label + "] not readable: " + $_.Exception.Message)
+        Write-Summary $summary ("  [" + $Label + "] not readable: " + $_.Exception.Message)
         return
     }
     foreach ($e in $events) {
@@ -171,27 +162,27 @@ Add-Events "LSM" ($common + @{ LogName = $lsm; Id = @(21, 22, 23, 24, 25) }) {
 $timeline = @($rows | Where-Object { $_.Detail } | Sort-Object Time)
 $timeline | Export-Csv -Path (Join-Path $OutDir "timeline.csv") -NoTypeInformation -Encoding UTF8
 
-Say "## Timeline (UTC, oldest first)"
+Write-Summary $summary "## Timeline (UTC, oldest first)"
 if ($timeline.Count -eq 0) {
-    Say "  no event in the window (is the Remote Desktop listener on? are the channels enabled?)"
+    Write-Summary $summary "  no event in the window (is the Remote Desktop listener on? are the channels enabled?)"
 }
 foreach ($r in $timeline) {
-    Say ("  {0}  {1,-8} {2,-5} {3}" -f $r.Time, $r.Source, $r.Id, $r.Detail)
+    Write-Summary $summary ("  {0}  {1,-8} {2,-5} {3}" -f $r.Time, $r.Source, $r.Id, $r.Detail)
 }
-Say ""
+Write-Summary $summary ""
 
 $failed = @($timeline | Where-Object { $_.Source -eq "Security" -and $_.Id -eq 4625 }).Count
 $authed = @($timeline | Where-Object { $_.Source -eq "RCM" -and $_.Id -eq 1149 }).Count
 $sessions = @($timeline | Where-Object { $_.Source -eq "LSM" -and $_.Id -eq 21 }).Count
-Say "## Counts"
-Say ("  4625 failed logon (types 3/10): " + $failed)
-Say ("  1149 RCM authentication succeeded: " + $authed)
-Say ("  21 LSM session logon: " + $sessions)
-Say ""
-Say "## How to read it (NLA setting: $nlaText)"
-Say "  One wrong-password attempt and one good one should give: 4625 x1, 1149 x1, 21 x1."
-Say "  1149 x2 (one of them right after the 4625, with no session 21) means the refused"
-Say "  attempt is also logged as 1149: the success-after-failures rule would count it."
-Say "  Keep the timeline.csv and this summary for the #700 discussion."
-Say ""
-Say ("Files: " + $OutDir)
+Write-Summary $summary "## Counts"
+Write-Summary $summary ("  4625 failed logon (types 3/10): " + $failed)
+Write-Summary $summary ("  1149 RCM authentication succeeded: " + $authed)
+Write-Summary $summary ("  21 LSM session logon: " + $sessions)
+Write-Summary $summary ""
+Write-Summary $summary "## How to read it (NLA setting: $nlaText)"
+Write-Summary $summary "  One wrong-password attempt and one good one should give: 4625 x1, 1149 x1, 21 x1."
+Write-Summary $summary "  1149 x2 (one of them right after the 4625, with no session 21) means the refused"
+Write-Summary $summary "  attempt is also logged as 1149: the success-after-failures rule would count it."
+Write-Summary $summary "  Keep the timeline.csv and this summary for the #700 discussion."
+Write-Summary $summary ""
+Write-Summary $summary ("Files: " + $OutDir)

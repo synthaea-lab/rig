@@ -19,10 +19,9 @@
 #>
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "../../powershell/RigCommon.ps1")
 
-if (-not ([Security.Principal.WindowsPrincipal] `
-      [Security.Principal.WindowsIdentity]::GetCurrent()
-    ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+if (-not (Test-Administrator)) {
   Write-Warning "Not elevated -- vagrant up/ssh/halt/destroy will fail. Re-open PowerShell as Administrator."
 }
 
