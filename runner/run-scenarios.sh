@@ -82,17 +82,36 @@ clip() { local l; while IFS= read -r l; do printf '%s\n' "${l:0:$1}"; done; }   
 trim() { local s=$1; s=${s#"${s%%[![:space:]]*}"}; s=${s%"${s##*[![:space:]]}"}; [ "$s" = - ] && s=""; printf '%s' "$s"; }
 
 # --- catalog + sidecars ----------------------------------------------------------------
-declare -A C_SET C_ROOT C_NEEDS C_KERNEL C_FLAGS C_ENV C_YARA C_SETTLE C_NOTE
+# The columns of a catalog row after the name, in file order (scenarios.conf documents
+# them). This list is the only place that knows the order: everything else asks
+# `catalog_get NAME COLUMN`.
+CATALOG_COLUMNS=(set root needs min_kernel agent_flags env yara settle note)
+declare -A CATALOG_CELLS   # "<name>|<column>" -> the trimmed cell, "" for `-`
 ORDER=()
-while IFS='|' read -r name set root needs kernel flags env yara settle note; do
-  name=$(trim "$name")
-  [ -z "$name" ] && continue
-  case $name in \#*) continue ;; esac
-  ORDER+=("$name")
-  C_SET[$name]=$(trim "$set"); C_ROOT[$name]=$(trim "$root"); C_NEEDS[$name]=$(trim "$needs")
-  C_KERNEL[$name]=$(trim "$kernel"); C_FLAGS[$name]=$(trim "$flags"); C_ENV[$name]=$(trim "$env")
-  C_YARA[$name]=$(trim "$yara"); C_SETTLE[$name]=$(trim "$settle"); C_NOTE[$name]=$(trim "$note")
-done < "$CATALOG"
+load_catalog() {   # $1 = a runner catalog: fills ORDER and CATALOG_CELLS
+  local name col cell
+  # One `cell_<column>` per column: `read` gives the last one (the note) the rest of the
+  # row, `|` included.
+  local "${CATALOG_COLUMNS[@]/#/cell_}"
+  while IFS='|' read -r name "${CATALOG_COLUMNS[@]/#/cell_}"; do
+    name=$(trim "$name")
+    [ -z "$name" ] && continue
+    case $name in \#*) continue ;; esac
+    ORDER+=("$name")
+    for col in "${CATALOG_COLUMNS[@]}"; do
+      cell=cell_$col
+      CATALOG_CELLS[$name|$col]=$(trim "${!cell}")
+    done
+  done < "$1"
+}
+catalog_get() {   # $1 = scenario, $2 = column: prints the cell ("" when empty or no such row)
+  case " ${CATALOG_COLUMNS[*]} " in
+    *" $2 "*) printf '%s' "${CATALOG_CELLS[$1|$2]:-}" ;;
+    *) echo "$RIG_SCRIPT: catalog_get: no column '$2'" >&2; return 2 ;;
+  esac
+}
+catalog_lists() { [ -n "$(catalog_get "$1" set)" ]; }   # a row with a set names the scenario
+load_catalog "$CATALOG"
 
 # Prints `technique|min_count|tolerance` per expected detection of a sidecar. The sidecars
 # keep to the documented shape (synthaea-lab/scenarios README), which is all this reads.
@@ -170,12 +189,12 @@ check() {
     else
       echo "catalog: $n has no $SCEN_DIR/$n.yaml"; bad=1
     fi
-    case ${C_SET[$n]} in default|opt-in) ;; *) echo "catalog: $n: set must be default or opt-in"; bad=1 ;; esac
-    for f in ${C_YARA[$n]}; do [ -f "$SCEN_DIR/$f" ] || { echo "catalog: $n: no $SCEN_DIR/$f"; bad=1; }; done
+    case $(catalog_get "$n" set) in default|opt-in) ;; *) echo "catalog: $n: set must be default or opt-in"; bad=1 ;; esac
+    for f in $(catalog_get "$n" yara); do [ -f "$SCEN_DIR/$f" ] || { echo "catalog: $n: no $SCEN_DIR/$f"; bad=1; }; done
   done
   for f in "$SCEN_DIR"/*.sh; do
     n=$(basename "$f" .sh)
-    [ -n "${C_SET[$n]:-}" ] || { echo "catalog: $n.sh is not in runner/scenarios.conf (add a row, default or opt-in)"; bad=1; }
+    catalog_lists "$n" || { echo "catalog: $n.sh is not in runner/scenarios.conf (add a row, default or opt-in)"; bad=1; }
   done
   [ "$bad" = 0 ] && echo "run-scenarios: catalog OK (${#ORDER[@]} scenarios, $SCEN_DIR)"
   return "$bad"
@@ -183,8 +202,9 @@ check() {
 
 if [ "$MODE" = catalog-rows ]; then
   for n in "${ORDER[@]}"; do
-    printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$n" "${C_SET[$n]}" "${C_ROOT[$n]}" "${C_NEEDS[$n]}" "${C_KERNEL[$n]}" \
-      "${C_FLAGS[$n]}" "${C_ENV[$n]}" "${C_YARA[$n]}" "${C_SETTLE[$n]}" "${C_NOTE[$n]}"
+    row=$n
+    for col in "${CATALOG_COLUMNS[@]}"; do row+="|$(catalog_get "$n" "$col")"; done
+    printf '%s\n' "$row"
   done
   exit 0
 fi
@@ -194,7 +214,7 @@ if [ "$MODE" = judge ]; then judge "$SNAPSHOT" "$SIDECAR" "$SCRIPT_RC"; exit; fi
 if [ "$MODE" = list ]; then
   printf '%-24s %-8s %s\n' SCENARIO SET EXPECTED
   for n in "${ORDER[@]}"; do
-    printf '%-24s %-8s %s\n' "$n" "${C_SET[$n]}" "$(expect_text "$SCEN_DIR/$n.yaml")"
+    printf '%-24s %-8s %s\n' "$n" "$(catalog_get "$n" set)" "$(expect_text "$SCEN_DIR/$n.yaml")"
   done
   exit 0
 fi
@@ -211,9 +231,9 @@ sudo -n true 2>/dev/null || die_env "needs passwordless sudo (the lab boxes have
 sudo install -d -m 0755 /run/synthaea
 
 if [ ${#NAMES[@]} -eq 0 ]; then
-  for n in "${ORDER[@]}"; do [ "${C_SET[$n]}" = default ] && NAMES+=("$n"); done
+  for n in "${ORDER[@]}"; do [ "$(catalog_get "$n" set)" = default ] && NAMES+=("$n"); done
 fi
-for n in "${NAMES[@]}"; do [ -n "${C_SET[$n]:-}" ] || die_usage "unknown scenario '$n' (--list shows them)"; done
+for n in "${NAMES[@]}"; do catalog_lists "$n" || die_usage "unknown scenario '$n' (--list shows them)"; done
 
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 RUN=$STATE/runs/$STAMP
@@ -225,16 +245,17 @@ KERNEL=$(uname -r)
 kernel_ge() { [ "$(printf '%s\n%s\n' "$2" "${1%%-*}" | sort -V | head -n1)" = "$2" ]; }
 
 missing_need() {   # prints the first unmet need of a scenario, if any
-  local n=$1 need alt ok
-  for need in ${C_NEEDS[$n]}; do
+  local n=$1 need alt ok min_kernel
+  for need in $(catalog_get "$n" needs); do
     case $need in
       lsm:*) grep -qw "${need#lsm:}" /sys/kernel/security/lsm 2>/dev/null || { echo "LSM ${need#lsm:} not active (lsm=$(cat /sys/kernel/security/lsm 2>/dev/null))"; return; } ;;
       *) ok=0; for alt in ${need//\// }; do command -v "$alt" >/dev/null 2>&1 && ok=1; done
          [ "$ok" = 1 ] || { echo "command ${need//\// or } not installed"; return; } ;;
     esac
   done
-  if [ -n "${C_KERNEL[$n]}" ] && ! kernel_ge "$KERNEL" "${C_KERNEL[$n]}"; then
-    echo "kernel $KERNEL < ${C_KERNEL[$n]}"
+  min_kernel=$(catalog_get "$n" min_kernel)
+  if [ -n "$min_kernel" ] && ! kernel_ge "$KERNEL" "$min_kernel"; then
+    echo "kernel $KERNEL < $min_kernel"
   fi
 }
 
@@ -258,7 +279,7 @@ echo "   $PROG_OK programs accepted by the verifier, $CHECK_BAD check(s) not OK"
 # --- one scenario ----------------------------------------------------------------------
 declare -A R_STATUS R_FIRED R_UNEXP R_FOLLOW R_TIME R_DETAIL
 run_one() {
-  local n=$1 W=$RUN/$1 reason start sudo_pid agent_pid rc last size quiet
+  local n=$1 W=$RUN/$1 reason flags script_env start sudo_pid agent_pid rc settle last size quiet
   mkdir -p "$W/content/rules"
   reason=$(missing_need "$n")
   if [ -n "$reason" ]; then
@@ -269,16 +290,17 @@ run_one() {
   # Content: the rules checkout, plus the scenario's own YARA file(s).
   cp -r "$ROOT/rules/sigma" "$ROOT/rules/yara" "$W/content/rules/" 2>/dev/null
   mkdir -p "$W/content/rules/yara"
-  for f in ${C_YARA[$n]}; do cp "$SCEN_DIR/$f" "$W/content/rules/yara/"; done
+  for f in $(catalog_get "$n" yara); do cp "$SCEN_DIR/$f" "$W/content/rules/yara/"; done
   chmod -R a+rX "$W"
 
+  flags=$(catalog_get "$n" agent_flags)
   start=$(date +%s)
-  # SC2086: C_FLAGS is word-split on purpose (the catalog's agent_flags column).
+  # SC2086: the flags are word-split on purpose (the catalog's agent_flags column).
   # SC2024: the log is opened by the runner, not root, on purpose: it stays the user's file,
   # and $! must stay sudo's pid (a `| sudo tee` would make it tee's).
   # shellcheck disable=SC2086,SC2024
   sudo env RUST_LOG=info "$AGENT" run --standalone --content-dir "$W/content" \
-    --alerts "$W/alerts.ndjson" --events "$W/events.jsonl" ${C_FLAGS[$n]} > "$W/agent.log" 2>&1 &
+    --alerts "$W/alerts.ndjson" --events "$W/events.jsonl" $flags > "$W/agent.log" 2>&1 &
   sudo_pid=$!
   for _ in $(seq 1 90); do
     grep -q 'sensor-linux: listening' "$W/agent.log" 2>/dev/null && break
@@ -296,9 +318,10 @@ run_one() {
   sleep 1
 
   local envs=(EVENTS="$W/events.jsonl" ALERTS="$W/alerts.ndjson" AGENT_PID="$agent_pid")
+  script_env=$(catalog_get "$n" env)
   # shellcheck disable=SC2206
-  envs+=(${C_ENV[$n]})
-  if [ "${C_ROOT[$n]}" = yes ]; then
+  envs+=($script_env)
+  if [ "$(catalog_get "$n" root)" = yes ]; then
     (cd "$W" && timeout 300 sudo env "${envs[@]}" bash "$SCEN_DIR/$n.sh") > "$W/scenario.log" 2>&1
   else
     (cd "$W" && timeout 300 env "${envs[@]}" bash "$SCEN_DIR/$n.sh") > "$W/scenario.log" 2>&1
@@ -306,7 +329,8 @@ run_one() {
   rc=$?
 
   # Settle: the catalog's delay, then until the alert file has been quiet for 2 s (max 20 s).
-  sleep "${C_SETTLE[$n]:-3}"
+  settle=$(catalog_get "$n" settle)
+  sleep "${settle:-3}"
   last=-1 quiet=0
   for _ in $(seq 1 20); do
     size=$(stat -c %s "$W/alerts.ndjson" 2>/dev/null || echo 0)
@@ -395,7 +419,8 @@ cell() { local s=${1:-—}; s=${s//|/\\|}; printf '%s' "$s"; }
     echo "### \`$n\`: ${R_STATUS[$n]}"
     [ -n "${R_DETAIL[$n]}" ] && echo && echo "${R_DETAIL[$n]}"
     [ -n "${R_FOLLOW[$n]}" ] && echo && echo "Follow-up alerts (not judged): ${R_FOLLOW[$n]}"
-    [ -n "${C_NOTE[$n]}" ] && echo && echo "Runner note: ${C_NOTE[$n]}"
+    note=$(catalog_get "$n" note)
+    [ -n "$note" ] && echo && echo "Runner note: $note"
     if [ -s "$RUN/$n/alerts.snapshot.ndjson" ]; then
       echo
       echo '```'
