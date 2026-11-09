@@ -61,7 +61,7 @@ SUDO=""
 
 apt_from_next_release() {   # $1 = suite, $2 = mirror line
   suite=$1 line=$2
-  if ! grep -rqs "[[:space:]]$suite[[:space:]]" /etc/apt/sources.list /etc/apt/sources.list.d/; then
+  if ! grep -rqs "[[:space:]]${suite}[[:space:]]" /etc/apt/sources.list /etc/apt/sources.list.d/; then
     echo "$line" | $SUDO tee "/etc/apt/sources.list.d/synthaea-$suite.list" >/dev/null
   fi
   # Priority 100: nothing else is ever pulled from the next release unless asked with -t.
@@ -73,6 +73,8 @@ apt_from_next_release() {   # $1 = suite, $2 = mirror line
 
 apply() {
   if check; then return 0; fi
+  # The guest's, not the host's: there is nothing for shellcheck to follow.
+  # shellcheck source=/dev/null
   . /etc/os-release
   case "${ID:-}:${VERSION_CODENAME:-}" in
     debian:bookworm)

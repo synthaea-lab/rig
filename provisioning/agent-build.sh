@@ -48,8 +48,10 @@ done
 say() { printf '\n== %s ==\n' "$*"; }
 die() { echo "agent-build: $*" >&2; exit 1; }
 
-# shellcheck disable=SC1091
+# Both are written by the guest's provisioning, so they do not exist where shellcheck runs.
+# shellcheck source=/dev/null
 [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
+# shellcheck source=/dev/null
 for f in /etc/profile.d/synthaea-*.sh; do [ -f "$f" ] && . "$f"; done
 mkdir -p "$STATE"
 
@@ -70,7 +72,11 @@ fi
 # --- offline bundle --------------------------------------------------------------------
 if [ "$OFFLINE" = 1 ]; then
   say "offline bundle"
-  incoming=$(ls -t /tmp/synthaea-offline-*.tar.gz 2>/dev/null | head -n1 || true)
+  incoming=""   # the newest pushed bundle, if any
+  for f in /tmp/synthaea-offline-*.tar.gz; do
+    [ -f "$f" ] || continue
+    if [ -z "$incoming" ] || [ "$f" -nt "$incoming" ]; then incoming=$f; fi
+  done
   if [ -n "$incoming" ]; then
     rm -rf "$OFFLINE_DIR.new" && mkdir -p "$OFFLINE_DIR.new"
     tar -xzf "$incoming" -C "$OFFLINE_DIR.new"
@@ -91,7 +97,7 @@ if [ "$OFFLINE" = 1 ]; then
     mkdir -p "$HOME/.cache/ort.pyke.io"
     cp -a "$OFFLINE_DIR/ort-cache/dfbin" "$HOME/.cache/ort.pyke.io/"
   fi
-  echo "vendored crates: $(ls "$OFFLINE_DIR/vendor" | wc -l), cargo home: $CARGO_HOME"
+  echo "vendored crates: $(find "$OFFLINE_DIR/vendor" -mindepth 1 -maxdepth 1 -name '[!.]*' | wc -l), cargo home: $CARGO_HOME"
 fi
 
 # --- ONNX Runtime ----------------------------------------------------------------------

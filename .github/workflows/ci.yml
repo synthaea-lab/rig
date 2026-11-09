@@ -8,8 +8,9 @@ name: CI
 #   $GITHUB_WORKSPACE/scenarios  synthaea-lab/scenarios at main
 # rig.py takes the parent of its checkout as the root, so no RIG_ROOT is needed.
 #
-# Linux runs the bash side (and the PowerShell parity, since ubuntu runners ship pwsh);
-# Windows runs the PowerShell scripts where they really run, with Git for Windows' bash.
+# Linux runs the bash side (and the PowerShell parity, since ubuntu runners ship pwsh), and
+# shellcheck, which ubuntu runners ship too; Windows runs the PowerShell scripts where they
+# really run, with Git for Windows' bash.
 
 on:
   push:
@@ -58,6 +59,10 @@ jobs:
           python --version
           bash --version | head -n 1
           pwsh --version
+      # rig.py check skips the shellcheck lint where there is no shellcheck: make sure Linux has it.
+      - name: shellcheck version
+        if: runner.os == 'Linux'
+        run: shellcheck --version
       - name: python rig.py check
         working-directory: rig
         run: python rig.py check

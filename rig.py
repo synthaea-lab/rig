@@ -216,9 +216,9 @@ def cmd_down(name: str, destroy: bool) -> None:
 
 
 def cmd_check() -> None:
-    """What CI can check without a VM: scripts parse, the catalogs match the scenarios,
-    the two runners read the sidecars alike, runner/windows/validate-admin.ps1 loads its
-    scenarios sibling."""
+    """What CI can check without a VM: scripts parse and are shellcheck-clean, the catalogs
+    match the scenarios, the two runners read the sidecars alike,
+    runner/windows/validate-admin.ps1 loads its scenarios sibling."""
     bash = shutil.which("bash")
     if not bash:
         raise RigError("bash is needed for the checks (Git for Windows ships one)")
@@ -227,6 +227,7 @@ def cmd_check() -> None:
         subprocess.run([bash, "-n", str(script.relative_to(RIG))], cwd=RIG, check=True)
     json.loads((RIG / "machines.json").read_text(encoding="utf-8"))
     print(f"rig: {len(scripts)} scripts parse, machines.json parses", flush=True)
+    check_shellcheck_clean(scripts)
     scenarios = ROOT / "scenarios" / "scenarios"
     if scenarios.is_dir():
         subprocess.run([bash, "runner/run-scenarios.sh", "--check", "--scenarios", scenarios.as_posix()],
@@ -235,6 +236,20 @@ def cmd_check() -> None:
         print(f"skipped: no {scenarios} for the runner catalog check")
     check_runners_read_sidecars_alike(bash, scenarios)
     check_admin_validation_loads_common()
+
+
+def check_shellcheck_clean(scripts: list[Path]) -> None:
+    """Every shell script is shellcheck-clean at its default severity (style and up).
+    A finding that is intended carries a `# shellcheck disable=...` with the reason."""
+    shellcheck = shutil.which("shellcheck")
+    if not shellcheck:
+        print("skipped: no shellcheck for the shell script lint")
+        return
+    found = subprocess.run([shellcheck, *(script.relative_to(RIG).as_posix() for script in scripts)],
+                           cwd=RIG, check=False)
+    if found.returncode != 0:
+        raise RigError("shellcheck has findings in the scripts (above)")
+    print(f"rig: {len(scripts)} scripts are shellcheck-clean", flush=True)
 
 
 SIDECAR_FIXTURES = RIG / "tests" / "sidecars"

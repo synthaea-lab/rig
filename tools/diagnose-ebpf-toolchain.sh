@@ -8,17 +8,29 @@
 # with rust-src, an LLVM major that matches), then does a verbose probe build so
 # the real rustc/bpf-linker error is visible instead of buried by aya-build.
 set -u
-# shellcheck disable=SC1091
+# Written by the guest's provisioning: there is nothing for shellcheck to follow.
+# shellcheck source=/dev/null
 source "$HOME/.cargo/env" 2>/dev/null || true
+
+# `ls -ld` each entry of $1 whose name mentions bpf, aya or bindgen ("none" if there is none).
+list_toolchain_entries() {
+  local entry found=0
+  for entry in "$1"/*; do
+    case ${entry##*/} in
+      *bpf*|*aya*|*bindgen*) ls -ld "$entry"; found=1 ;;
+    esac
+  done
+  [ "$found" = 1 ] || echo "  none"
+}
 
 echo "=== bpf-linker on PATH ==="
 command -v bpf-linker && bpf-linker --version || echo "  bpf-linker NOT on PATH — run: vagrant provision <machine>"
 echo
 echo "=== ~/.cargo/bin ==="
-ls -la "$HOME/.cargo/bin/" | grep -E 'bpf|aya|bindgen' || echo "  none"
+list_toolchain_entries "$HOME/.cargo/bin"
 echo
 echo "=== /usr/local/bin symlinks (sudo's PATH) ==="
-ls -la /usr/local/bin/ | grep -E 'bpf|aya|bindgen' || echo "  none"
+list_toolchain_entries /usr/local/bin
 echo
 echo "=== eBPF probe toolchain (LLVM major) ==="
 _ebpf_tc=$(tr -d '[:space:]' 2>/dev/null < "${SYNTHAEA_SRC:-/synthaea/agent}/ebpf-toolchain.txt" || echo nightly)
