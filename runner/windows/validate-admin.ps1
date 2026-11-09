@@ -96,6 +96,7 @@ if (-not (Test-Path -LiteralPath $CommonScript)) {
     throw "$CommonScript not found - check out the scenarios repository next to rig, or pass -Root"
 }
 . $CommonScript
+. (Join-Path (Split-Path -Parent $PSScriptRoot) "LabAgent.ps1")
 
 # The agent's ETW providers (agent\crates\sensors\windows\etw\src\providers.rs).
 $AgentProviders = [ordered]@{
@@ -115,7 +116,8 @@ $AgentPrefix = "wtrace-"
 $KernelFileMaskPrefix = "synthaea-kf-mask-"
 $KernelProcessMaskPrefix = "synthaea-kp-mask-"
 $Results = New-Object System.Collections.ArrayList
-$Current = $null
+# Every agent a phase starts, so the cleanup stops any a failing phase left running.
+$LabAgents = New-Object System.Collections.ArrayList
 $MaskTestSession = $null
 $MaskTestNeedsCleanup = $false
 
@@ -202,44 +204,18 @@ function Get-ProviderEnablers {
 
 # -- Agent -------------------------------------------------------------------
 
-function Start-LabAgent([string]$Tag) {
+function Start-PhaseAgent([string]$Tag) {
+    # One agent per phase step, in its own $OutDir\$Tag, recorded in $LabAgents.
     $dir = Join-Path $OutDir $Tag
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
-    $agentArgs = @("--config", "`"$ConfigPath`"", "run",
-        "--alerts", "`"$dir\alerts.ndjson`"", "--events", "`"$dir\events.jsonl`"")
-    $proc = Start-Process -FilePath $AgentExe -ArgumentList $agentArgs -WorkingDirectory $dir `
-        -RedirectStandardOutput "$dir\stdout.log" -RedirectStandardError "$dir\stderr.log" `
-        -WindowStyle Hidden -PassThru
-    $script:Current = [pscustomobject]@{
-        Process = $proc; Dir = $dir; Started = Get-Date
-        Events = "$dir\events.jsonl"; Alerts = "$dir\alerts.ndjson"
-    }
-    $script:Current
-}
-
-function Wait-AgentEvents($Agent, [int]$TimeoutSec = 30) {
-    # Ready once the first event lands (the pid store is seeded and the trace runs).
-    $deadline = (Get-Date).AddSeconds($TimeoutSec)
-    while ((Get-Date) -lt $deadline) {
-        if ($Agent.Process.HasExited) { return $false }
-        if ((Test-Path $Agent.Events) -and (Get-Item $Agent.Events).Length -gt 0) { return $true }
-        Start-Sleep -Milliseconds 500
-    }
-    $false
-}
-
-function Stop-LabAgent($Agent) {
-    if ($Agent -and -not $Agent.Process.HasExited) {
-        Stop-Process -Id $Agent.Process.Id -Force
-        $Agent.Process.WaitForExit(10000) | Out-Null
-    }
-    $script:Current = $null
+    $agent = Start-LabAgent -AgentExe $AgentExe -Config $ConfigPath -Dir $dir
+    [void]$LabAgents.Add($agent)
+    $agent
 }
 
 function Get-AgentLog($Agent) {
-    (@("stdout.log", "stderr.log") | ForEach-Object {
-        $path = Join-Path $Agent.Dir $_
-        if (Test-Path $path) { Get-Content -LiteralPath $path -Raw }
+    (@($Agent.StdoutLog, $Agent.StderrLog) | ForEach-Object {
+        if (Test-Path -LiteralPath $_) { Get-Content -LiteralPath $_ -Raw }
     }) -join "`n"
 }
 
@@ -335,33 +311,7 @@ if (Get-Process -Name "agent" -ErrorAction SilentlyContinue) {
 
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $OutDir = (Resolve-Path $OutDir).Path
-$ConfigPath = Join-Path $OutDir "agent.toml"
-@"
-schema_version = 1
-
-[server]
-control_plane_url = "https://cp.lab.invalid"
-mtls_cert = '$OutDir\certs\client.crt'
-mtls_key = '$OutDir\certs\client.key'
-mtls_passphrase = "envvar:SYNTHAEA_MTLS_PASSPHRASE"
-offline_fallback = true
-
-[log]
-dir = '$OutDir\logs'
-level = "info"
-max_mb = 64
-
-[storage]
-state_dir = '$OutDir\state'
-spool_max_mb = 64
-
-[ipc]
-endpoint = '\\.\pipe\synthaea-lab-validation'
-
-[resources]
-worker_threads = 0
-max_reconnect_backoff_ms = 60000
-"@ | Set-Content -LiteralPath $ConfigPath -Encoding Ascii
+$ConfigPath = New-LabAgentConfig -Dir $OutDir -PipeName "synthaea-lab-validation"
 
 if ($needsAgent) {
     Write-Host "agent:  $AgentExe ($((Get-Item $AgentExe).LastWriteTime))"
@@ -380,7 +330,7 @@ try {
     # -- A. #408: every orphan is stopped -----------------------------------
     if (-not $SkipOrphans) {
         Write-Section "A. #408 orphan cleanup"
-        $seed = Start-LabAgent "A0-make-orphan"
+        $seed = Start-PhaseAgent "A0-make-orphan"
         if (-not (Wait-AgentEvents $seed)) { throw "the agent produced no events in 30s; see $($seed.Dir)" }
         Stop-LabAgent $seed
         $realOrphans = Get-EtsSessions $AgentPrefix
@@ -389,7 +339,7 @@ try {
         $orphans = Get-EtsSessions $AgentPrefix
         Add-Result "orphans before start" "INFO" "$($orphans.Count) ($($realOrphans.Count) left by a killed agent): $($orphans -join ', ')"
 
-        $agent = Start-LabAgent "A1-sweep"
+        $agent = Start-PhaseAgent "A1-sweep"
         $ready = Wait-AgentEvents $agent
         Invoke-Triggers $agent "synthaea408-sweep"
         Start-Sleep -Seconds 35
@@ -430,7 +380,7 @@ try {
                 try { New-RealtimeSession "$ProbePrefix$i" } catch { $refused += "probe $i ($($_.Exception.Message))" }
             }
             if ($refused.Count -gt 0) { Add-Result "probes=$n refused" "INFO" ($refused -join "; ") }
-            $agent = Start-LabAgent "B-probes-$n"
+            $agent = Start-PhaseAgent "B-probes-$n"
             $ready = Wait-AgentEvents $agent
             $marker = "synthaea408-probe$n"
             Invoke-Triggers $agent $marker
@@ -460,7 +410,7 @@ try {
         if ($shortDir -eq $labDir -or $shortDir -notmatch "~") {
             Add-Result "#489" "SKIP" "the volume generates no 8.3 names for $labDir (fsutil 8dot3name)"
         } else {
-            $agent = Start-LabAgent "C-long-path"
+            $agent = Start-PhaseAgent "C-long-path"
             if (-not (Wait-AgentEvents $agent)) { throw "the agent produced no events in 30s; see $($agent.Dir)" }
             for ($i = 1; $i -le $MarkCount; $i++) {
                 $long = Join-Path $labDir ("marked long name {0:D2}.exe" -f $i)
@@ -560,7 +510,7 @@ try {
         # A real image, so the exec after the removal is a real process start.
         $viaUnblock = Join-Path $labDir "unblocked442.exe"
         $viaStream = Join-Path $labDir "streamremoved442.exe"
-        $agent = Start-LabAgent "E-mark-removal"
+        $agent = Start-PhaseAgent "E-mark-removal"
         if (-not (Wait-AgentEvents $agent)) { throw "the agent produced no events in 30s; see $($agent.Dir)" }
         foreach ($f in @($viaUnblock, $viaStream)) {
             Copy-Item -LiteralPath "$env:SystemRoot\System32\whoami.exe" -Destination $f
@@ -660,7 +610,7 @@ try {
 }
 finally {
     Write-Section "Cleanup"
-    Stop-LabAgent $Current
+    foreach ($agent in $LabAgents) { Stop-LabAgent $agent }
     if ($MaskTestNeedsCleanup -and $MaskTestSession) {
         Invoke-NativeCleanup "ETW session $MaskTestSession" logman.exe @("stop", $MaskTestSession, "-ets")
     }

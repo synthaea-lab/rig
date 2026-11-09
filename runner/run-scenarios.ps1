@@ -26,6 +26,7 @@ $ErrorActionPreference = "Stop"
 
 $scenDir = Join-Path $Root "scenarios\scenarios"
 $catalog = Join-Path $PSScriptRoot "scenarios-windows.conf"
+. (Join-Path $PSScriptRoot "LabAgent.ps1")
 $buildInfo = Join-Path $State "build-info"
 if (-not (Test-Path $buildInfo)) { throw "no ${buildInfo}: build first (python rig.py build $Machine)" }
 $info = @{}
@@ -78,38 +79,6 @@ $stamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssZ")
 $run = Join-Path $State "runs\$stamp"
 New-Item -ItemType Directory -Force -Path $run, (Join-Path $State "reports") | Out-Null
 
-function New-LabConfig([string]$Dir) {
-  # The lab template of rig\runner\windows\validate-admin.ps1: offline, nothing outside $Dir.
-  $config = Join-Path $Dir "agent.toml"
-  @"
-schema_version = 1
-
-[server]
-control_plane_url = "https://cp.lab.invalid"
-mtls_cert = '$Dir\certs\client.crt'
-mtls_key = '$Dir\certs\client.key'
-mtls_passphrase = "envvar:SYNTHAEA_MTLS_PASSPHRASE"
-offline_fallback = true
-
-[log]
-dir = '$Dir\logs'
-level = "info"
-max_mb = 64
-
-[storage]
-state_dir = '$Dir\state'
-spool_max_mb = 64
-
-[ipc]
-endpoint = '\\.\pipe\synthaea-lab-runner'
-
-[resources]
-worker_threads = 0
-max_reconnect_backoff_ms = 60000
-"@ | Set-Content -LiteralPath $config -Encoding Ascii
-  return $config
-}
-
 function Get-Counts([string]$File) {
   $counts = @{}
   if (Test-Path $File) {
@@ -126,24 +95,18 @@ foreach ($n in $Names) {
   Write-Host "== $n"
   $dir = Join-Path $run $n
   New-Item -ItemType Directory -Force -Path $dir | Out-Null
-  $events = Join-Path $dir "events.jsonl"; $alerts = Join-Path $dir "alerts.ndjson"
   $expect = Get-Expectations $n
   $r = [pscustomobject]@{ Name = $n; Status = ""; Fired = ""; Unexpected = ""; Detail = ""; Seconds = 0; Expect = $expect }
   $start = Get-Date
-  $config = New-LabConfig $dir
-  $agentArgs = @("--config", "`"$config`"", "run", "--standalone", "--content-dir", "`"$Root`"",
-                 "--alerts", "`"$alerts`"", "--events", "`"$events`"")
-  $proc = Start-Process -FilePath $agent -ArgumentList $agentArgs -WorkingDirectory $dir `
-    -RedirectStandardOutput "$dir\agent.out.log" -RedirectStandardError "$dir\agent.log" -WindowStyle Hidden -PassThru
-  $deadline = (Get-Date).AddSeconds(45)
-  while (-not ((Test-Path $events) -and (Get-Item $events).Length -gt 0) -and -not $proc.HasExited -and (Get-Date) -lt $deadline) {
-    Start-Sleep -Milliseconds 500
-  }
-  if ($proc.HasExited -or -not (Test-Path $events)) {
-    if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
-    $r.Status = "ERROR"; $r.Detail = "agent did not start (see $dir\agent.log)"
+  $config = New-LabAgentConfig -Dir $dir -PipeName "synthaea-lab-runner"
+  $labAgent = Start-LabAgent -AgentExe $agent -Config $config -Dir $dir `
+    -RunArgs @("--standalone", "--content-dir", "`"$Root`"") -StdoutLog "agent.out.log" -StderrLog "agent.log"
+  if (-not (Wait-AgentEvents $labAgent -TimeoutSec 45)) {
+    Stop-LabAgent $labAgent
+    $r.Status = "ERROR"; $r.Detail = "agent did not start (see $($labAgent.StderrLog))"
     $r.Seconds = [int]((Get-Date) - $start).TotalSeconds; $results += $r; Write-Host "   ERROR"; continue
   }
+  $alerts = $labAgent.Alerts
   Start-Sleep -Seconds 2
 
   $ErrorActionPreference = "Continue"
@@ -161,8 +124,7 @@ foreach ($n in $Names) {
   }
   $snap = Join-Path $dir "alerts.snapshot.ndjson"
   if (Test-Path $alerts) { Copy-Item $alerts $snap } else { New-Item -ItemType File $snap | Out-Null }
-  Stop-Process -Id $proc.Id -Force
-  $proc.WaitForExit(10000) | Out-Null
+  Stop-LabAgent $labAgent
   $r.Seconds = [int]((Get-Date) - $start).TotalSeconds
 
   $got = Get-Counts $snap
