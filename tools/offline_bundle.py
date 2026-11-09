@@ -53,9 +53,11 @@ def run(*cmd: str | Path, cwd: Path = ROOT, capture: bool = False) -> str:
     return res.stdout or ""
 
 
-def bundle_key() -> str:
-    lock = (AGENT / "Cargo.lock").read_bytes()
-    tc = (AGENT / "packaging" / "toolchain" / "ebpf-toolchain.txt").read_bytes()
+def bundle_key(agent: Path = AGENT) -> str:
+    """The bundle KEY for the agent checkout `agent`. provisioning/agent-build.sh computes the
+    same KEY in bash in the guest; tests/test_offline_bundle.py checks that the two agree."""
+    lock = (agent / "Cargo.lock").read_bytes()
+    tc = (agent / "packaging" / "toolchain" / "ebpf-toolchain.txt").read_bytes()
     return hashlib.sha256(lock + b"\0" + tc).hexdigest()[:16]
 
 
