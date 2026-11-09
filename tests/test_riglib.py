@@ -33,6 +33,18 @@ class RunCli(unittest.TestCase):
 
         self.assertEqual(self.run_quietly(task), (2, "error: do this first\n"))
 
+    def test_a_failed_check_prints_its_message_and_exits_1(self) -> None:
+        def task() -> None:
+            raise riglib.CheckFailed("the sidecars drift")
+
+        self.assertEqual(self.run_quietly(task), (1, "error: the sidecars drift\n"))
+
+    def test_a_rig_error_can_carry_another_code(self) -> None:
+        def task() -> None:
+            raise riglib.RigError("the runner wrote no report", riglib.EXIT_FAILED)
+
+        self.assertEqual(self.run_quietly(task), (1, "error: the runner wrote no report\n"))
+
     def test_a_bundle_error_is_a_rig_error(self) -> None:
         def task() -> None:
             raise offline_bundle.BundleError("no ort-sys")

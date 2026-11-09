@@ -19,7 +19,8 @@ the rig can check without a VM. Run it before opening a pull request. It needs t
   vagrant, against a fake `vagrant` on `PATH`, `tests/test_offline_bundle.py` how
   `tools/offline_bundle.py` pushes a bundle with the same fake and that its bundle KEY matches
   the one `provisioning/agent-build.sh` computes in bash, `tests/test_riglib.py` the
-  exit codes of `tools/riglib.py`, which both tools share),
+  exit codes of `tools/riglib.py`, which both tools share, `tests/test_exit_codes.py`
+  how `rig.py` and the bash scripts follow the [exit-code convention](#exit-codes),
   and `tests/test_agent_build.py` what `provisioning/agent-build.sh` runs, refuses and
   records in `build-info`, against a fake guest (Linux only);
 - every shell script parses, and is shellcheck-clean when `shellcheck` is installed;
@@ -53,6 +54,23 @@ to the guest without syncing or running anything.
 Linux guests, LF for the `tests/judge/` fixtures, which the bash runner reads on Windows too,
 and CRLF for PowerShell scripts, the lab `agent.toml` template and the `tests/lab-agent/`
 configs. Keep new files within those patterns.
+
+## Exit codes
+
+Every rig tool exits with the same three codes, so `rig.py`, CI and a shell loop over the
+tools can tell a failure from a run that never started:
+
+| Code | Meaning | Examples |
+| --- | --- | --- |
+| 0 | OK | every scenario passed, every check passed, the agent is built |
+| 1 | The task ran and something failed | a scenario FAILed or ERRORed, `rig.py check` or `run-scenarios.sh --check` found a problem, the build failed or has no eBPF probes |
+| 2 | The task could not run: a usage error or an unmet environment | an unknown option, command or machine, an option without its value, no vagrant or bash, sources not synced, no build in the guest, no passwordless sudo |
+
+In Python, raise `RigError` (`tools/riglib.py`) for a usage or environment problem and
+`CheckFailed` for a finding; `run_cli` prints the message and exits 2 or 1. A command that
+fails exits with its own code, and `rig.py run` with the runner's. In bash, source
+`runner/lib/common.sh` and stop with `die_env` or `die_usage` (2) or `die` (1); check an
+option's values with `need_values`. Say a script's exit status in its header comment.
 
 ## Adding a scenario
 
