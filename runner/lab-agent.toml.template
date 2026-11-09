@@ -1,0 +1,24 @@
+schema_version = 1
+
+[server]
+control_plane_url = "https://cp.lab.invalid"
+mtls_cert = '@DIR@\certs\client.crt'
+mtls_key = '@DIR@\certs\client.key'
+mtls_passphrase = "envvar:SYNTHAEA_MTLS_PASSPHRASE"
+offline_fallback = true
+
+[log]
+dir = '@DIR@\logs'
+level = "info"
+max_mb = 64
+
+[storage]
+state_dir = '@DIR@\state'
+spool_max_mb = 64
+
+[ipc]
+endpoint = '\\.\pipe\@PIPE@'
+
+[resources]
+worker_threads = 0
+max_reconnect_backoff_ms = 60000

@@ -4,12 +4,12 @@
 
 .DESCRIPTION
     New-LabAgentConfig must write, for each caller's pipe name, the agent.toml in
-    tests/lab-agent/<caller>.toml, with @DIR@ standing for the directory (those are the
-    bytes run-scenarios.ps1 and validate-admin.ps1 wrote before they shared it). Where
-    /bin/sh exists, Start-LabAgent, Wait-AgentEvents and Stop-LabAgent then drive a fake
-    agent: the command line it gets, ready on its first event, not ready when it exits
-    first, and a stop that kills it by pid and can be repeated. `python rig.py check`
-    runs this.
+    tests/lab-agent/<caller>.toml byte for byte, with @DIR@ standing for the directory (those
+    are the bytes run-scenarios.ps1 and validate-admin.ps1 wrote on Windows before they
+    shared runner/lab-agent.toml.template). Where /bin/sh exists, Start-LabAgent,
+    Wait-AgentEvents and Stop-LabAgent then drive a fake agent: the command line it gets,
+    ready on its first event, not ready when it exits first, and a stop that kills it by
+    pid and can be repeated. `python rig.py check` runs this.
 #>
 $ErrorActionPreference = "Stop"
 $rig = Split-Path -Parent $PSScriptRoot
@@ -25,15 +25,15 @@ function Expect([bool]$Ok, [string]$What) {
 
 try {
     # -- New-LabAgentConfig: the bytes each caller wrote ---------------------------------
-    # Set-Content ends the file with the platform's newline: compare everything before it.
+    # Byte for byte: the template carries its own CRLF endings, the final one included.
     foreach ($case in @(@{ Golden = "runner"; Pipe = "synthaea-lab-runner" },
                         @{ Golden = "validation"; Pipe = "synthaea-lab-validation" })) {
         $dir = Join-Path $work $case.Golden
         New-Item -ItemType Directory -Path $dir | Out-Null
         $config = New-LabAgentConfig -Dir $dir -PipeName $case.Pipe
         Expect ($config -eq (Join-Path $dir "agent.toml")) "New-LabAgentConfig returned $config, not $dir/agent.toml"
-        $want = (Get-Content -LiteralPath (Join-Path $PSScriptRoot "lab-agent/$($case.Golden).toml") -Raw).Replace("@DIR@", $dir).TrimEnd("`r", "`n")
-        $got = (Get-Content -LiteralPath $config -Raw).TrimEnd("`r", "`n")
+        $want = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot "lab-agent/$($case.Golden).toml")).Replace("@DIR@", $dir)
+        $got = [System.IO.File]::ReadAllText($config)
         Expect ($got -ceq $want) "New-LabAgentConfig -PipeName $($case.Pipe) differs from tests/lab-agent/$($case.Golden).toml"
     }
 

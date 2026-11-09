@@ -394,8 +394,9 @@ def check_admin_validation_loads_common() -> None:
 
 
 def check_lab_agent_lifecycle() -> None:
-    """runner/LabAgent.ps1 writes the lab agent.toml of tests/lab-agent/ and starts, waits for
-    and stops an agent by pid (a fake one, where /bin/sh exists)."""
+    """runner/LabAgent.ps1 writes the lab agent.toml of tests/lab-agent/ (from
+    runner/lab-agent.toml.template) and starts, waits for and stops an agent by pid (a fake
+    one, where /bin/sh exists)."""
     pwsh = shutil.which("pwsh")
     if not pwsh:
         print("skipped: no pwsh for the runner/LabAgent.ps1 lifecycle check")
