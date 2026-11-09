@@ -441,7 +441,7 @@ def fetch_report(name: str, guest: Guest, path: str) -> Path:
         raise RigError(f"could not fetch {path} from {name}: {fetched.stderr.strip()}")
     dest = REPORTS / Path(path.replace("\\", "/")).name
     REPORTS.mkdir(exist_ok=True)
-    dest.write_text(fetched.stdout.replace("\r\n", "\n"), encoding="utf-8")
+    dest.write_text(fetched.stdout.replace("\r\n", "\n"), encoding="utf-8", newline="\n")
     return dest
 
 
