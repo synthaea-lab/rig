@@ -29,7 +29,8 @@ the rig can check without a VM. Run it before opening a pull request. It needs t
   a `provision` path into a sibling checkout, unique `qemu_ssh_port`s and no unknown field
   (`tests/test_catalog.py` pins each message, which names the machine);
 - the runner catalogs (`runner/scenarios.conf`, `runner/scenarios-windows.conf`) have a row
-  for every scenario, and every sidecar is readable;
+  for every scenario, and every sidecar is readable; `run-scenarios.sh` reads the rows of
+  `tests/catalog/scenarios.conf` as its `# reads:` lines state;
 - `run-scenarios.sh` judges the alert snapshots in `tests/judge/` as each case's `verdict`
   file states, and judges every sidecar at its bounds: a PASS with every expected technique
   at `min_count`, a FAIL past `min_count + tolerance`;
