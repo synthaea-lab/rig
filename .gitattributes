@@ -14,5 +14,7 @@ Vagrantfile text eol=lf
 *.ndjson             text eol=lf
 tests/judge/*/verdict text eol=lf
 
-# Lab agent.toml goldens for tests/lab-agent.ps1: CRLF, as the PowerShell here-string writes them.
-tests/lab-agent/*.toml text eol=crlf
+# The lab agent.toml template and its goldens for tests/lab-agent.ps1: CRLF, the bytes the
+# PowerShell runners have always written on Windows.
+runner/lab-agent.toml.template text eol=crlf
+tests/lab-agent/*.toml         text eol=crlf

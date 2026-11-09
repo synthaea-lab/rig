@@ -24,7 +24,8 @@ the rig can check without a VM. Run it before opening a pull request. It needs t
 - with PowerShell (`pwsh`) installed, `run-scenarios.ps1` reads every sidecar exactly as
   `run-scenarios.sh` does, `runner/windows/validate-admin.ps1` resolves its scenarios
   sibling, and `runner/LabAgent.ps1` (the agent lifecycle both PowerShell runners share)
-  writes the lab `agent.toml` of `tests/lab-agent/` and starts, waits for and stops an agent
+  writes, from `runner/lab-agent.toml.template`, the lab `agent.toml` of `tests/lab-agent/`
+  byte for byte, and starts, waits for and stops an agent
   by pid.
 
 A check that cannot run because a tool is missing prints `skipped:` and the reason. A
@@ -33,7 +34,8 @@ change that touches the runners or provisioning is best also run on at least one
 
 `.gitattributes` fixes line endings: LF for shell scripts and the catalogs, which run inside
 Linux guests, LF for the `tests/judge/` fixtures, which the bash runner reads on Windows too,
-and CRLF for PowerShell scripts and the `tests/lab-agent/` configs. Keep new files within those patterns.
+and CRLF for PowerShell scripts, the lab `agent.toml` template and the `tests/lab-agent/`
+configs. Keep new files within those patterns.
 
 ## Adding a scenario
 

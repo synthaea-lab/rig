@@ -4,7 +4,8 @@
 
     . (Join-Path $PSScriptRoot "LabAgent.ps1")
 
-  New-LabAgentConfig  writes a lab agent.toml that keeps everything inside one directory
+  New-LabAgentConfig  writes a lab agent.toml (lab-agent.toml.template) that keeps everything
+                      inside one directory
   Start-LabAgent      starts agent.exe with that config and returns a handle
   Wait-AgentEvents    waits until the agent has written its first event (its readiness)
   Stop-LabAgent       stops that one process, by pid; safe to call twice
@@ -17,38 +18,20 @@
 function New-LabAgentConfig {
   <# Writes $Dir\agent.toml and returns its path: offline (the control plane is a .invalid
      host), with logs, state and certificates under $Dir, and the local IPC endpoint on the
-     named pipe $PipeName, so two lab agents of different scripts never share one. #>
+     named pipe $PipeName, so two lab agents of different scripts never share one. The text
+     is runner\lab-agent.toml.template with @DIR@ and @PIPE@ replaced. #>
   param(
     [Parameter(Mandatory)][string]$Dir,
     [Parameter(Mandatory)][string]$PipeName
   )
+  $template = Get-Content -LiteralPath (Join-Path $PSScriptRoot "lab-agent.toml.template") -Raw
+  foreach ($placeholder in "@DIR@", "@PIPE@") {
+    if (-not $template.Contains($placeholder)) { throw "lab-agent.toml.template has no $placeholder" }
+  }
+  # String.Replace, not -replace: a directory may hold regex metacharacters such as `$`.
   $config = Join-Path $Dir "agent.toml"
-  @"
-schema_version = 1
-
-[server]
-control_plane_url = "https://cp.lab.invalid"
-mtls_cert = '$Dir\certs\client.crt'
-mtls_key = '$Dir\certs\client.key'
-mtls_passphrase = "envvar:SYNTHAEA_MTLS_PASSPHRASE"
-offline_fallback = true
-
-[log]
-dir = '$Dir\logs'
-level = "info"
-max_mb = 64
-
-[storage]
-state_dir = '$Dir\state'
-spool_max_mb = 64
-
-[ipc]
-endpoint = '\\.\pipe\$PipeName'
-
-[resources]
-worker_threads = 0
-max_reconnect_backoff_ms = 60000
-"@ | Set-Content -LiteralPath $config -Encoding Ascii
+  $template.Replace("@DIR@", $Dir).Replace("@PIPE@", $PipeName) |
+    Set-Content -LiteralPath $config -Encoding Ascii -NoNewline
   $config
 }
 
