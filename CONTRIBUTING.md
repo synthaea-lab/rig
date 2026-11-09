@@ -42,7 +42,9 @@ the rig can check without a VM. Run it before opening a pull request. It needs t
   by pid; and the scripts that dot-source `powershell/RigCommon.ps1` (the admin check
   `Assert-RigAdministrator` and the summary writer `Write-RigSummary`) parse, find it and keep no
   copy of their own, and no RigCommon name is also defined by the scenarios' `common.ps1`
-  (`tests/rig-common.ps1`).
+  (`tests/rig-common.ps1`); and `vagrant/hyperv/helpers.ps1` names its commands Verb-Noun,
+  keeps the short names (`vup`, `vssh`, ...) as their aliases, and runs, through them, the
+  `rig.py` or `vagrant` command lines `tests/hyperv-helpers.ps1` states.
 
 A check that cannot run because a tool is missing prints `skipped:` and the reason. A
 change that touches the runners or provisioning is best also run on at least one VM with

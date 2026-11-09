@@ -1,20 +1,28 @@
 <#
-  Dot-source this for short forms of the Hyper-V lab commands. RUN FROM AN ELEVATED
-  PowerShell -- the Hyper-V provider needs elevation for every command that touches a VM.
-  The cross-platform way is `python rig.py up/build/run` (README.md);
-  these are the same steps for a PowerShell session that lives in rig\vagrant.
+  Dot-source this for the Hyper-V lab commands. RUN FROM AN ELEVATED PowerShell -- the
+  Hyper-V provider needs elevation for every command that touches a VM.
+  The cross-platform way is `python rig.py up/build/run` (README.md); these commands call
+  rig.py for the steps it covers, from a PowerShell session that lives in rig\vagrant.
 
     . rig\vagrant\hyperv\helpers.ps1   # dot-source (note the leading dot + space)
-    vprep                        # wsl --shutdown + check rsync + set the switch
-    vup                          # up + provision the default machine
-    vbuild                       # provisioning/agent-build.sh in the VM
-    vscen beacon                 # runner/run-scenarios.sh beacon in the VM
-    vreset                       # destroy -f + up  (clean rollback)
+
+    Command                 Short   What it does
+    Initialize-LabSession   vprep   wsl --shutdown + check rsync + set the switch + free RAM
+    Start-LabMachine        vup     rig.py up: boot + provision the machine
+    Sync-LabMachine         vsync   vagrant rsync: re-push the sources
+    Invoke-LabShell         vssh    vagrant ssh, or run a bash snippet in the guest
+    Stop-LabMachine         vhalt   rig.py down: halt the VM
+    Reset-LabMachine        vreset  rig.py down --destroy + rig.py up (clean rollback)
+    Build-LabAgent          vbuild  rig.py build: provisioning/agent-build.sh in the VM
+    Get-LabAgentStatus      vstatus the agent's verifier check (status) in the VM
+    Invoke-LabScenario      vscen   rig.py run: scenarios + report copied to reports/
+
+  The short names are aliases, kept for muscle memory; they take the same arguments.
 
   First-run host setup is .\bootstrap.ps1 (Hyper-V feature, group, Vagrant, Default
   Switch) -- once, not every session.
 
-  Every function takes an optional machine name; it defaults to $LabMachine
+  Every command takes an optional machine name; it defaults to $LabMachine
   ("ubuntu2204"). Set $LabMachine = "debian12" to switch the default.
 #>
 
@@ -34,21 +42,35 @@ $env:VAGRANT_HYPERV_SWITCH = "Default Switch"
 $env:VAGRANT_CWD = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $env:VAGRANT_DEFAULT_PROVIDER = "hyperv"
 
-# Default target machine for every helper below.
+# Default target machine for every command below.
 $LabMachine = "ubuntu2204"
+# The rig's CLI, which the commands call for every step it covers.
+$LabRigCli = (Resolve-Path (Join-Path $PSScriptRoot "../../rig.py")).Path
 
-function Get-LabMachine([string]$Name) {
+function Resolve-LabMachineName([string]$Name) {
+  <# The machine a command targets: $Name, or $LabMachine when none is given. #>
   if ($Name) { return $Name }
   return $LabMachine
 }
 
-function vprep {
+function Invoke-RigCli([string[]]$Arguments) {
+  <# Runs `python rig.py <Arguments>`; its exit code is left in $LASTEXITCODE. #>
+  python $LabRigCli @Arguments
+}
+
+function Split-LabWords([string]$Words) {
+  <# The space-separated words of $Words, as separate arguments (none for an empty string). #>
+  @($Words -split '\s+' | Where-Object { $_ })
+}
+
+function Initialize-LabSession {
   <#
-    Per-session prep before `vup`, in order:
+    Per-session prep before Start-LabMachine (vup), in order:
       1. wsl --shutdown  -- the boxes ask for 4 GB; reclaim it from WSL first
       2. check an rsync is on PATH (Vagrant needs one for the synced folder --
          Git for Windows ships one, or `choco install rsync` / `winget install cwRsync`)
       3. (re)assert the switch env var
+      4. warn when too little RAM is free for the VM to start
   #>
   Write-Host "wsl --shutdown" -ForegroundColor Cyan
   wsl --shutdown
@@ -65,25 +87,23 @@ function vprep {
   # `vagrant up` dies with 0x800705AA -- warn before the 30 s import + failure.
   $freeMB = [int]((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1KB)
   if ($freeMB -lt 1536) {
-    Write-Warning "only ${freeMB} MB RAM free -- close a browser/IDE before `vup` (Hyper-V needs ~1 GB to start the VM)."
+    Write-Warning "only ${freeMB} MB RAM free -- close a browser/IDE before Start-LabMachine (Hyper-V needs ~1 GB to start the VM)."
   } else {
     Write-Host "RAM free: ${freeMB} MB" -ForegroundColor Green
   }
 }
 
-function vup {
+function Start-LabMachine {
   <# Bring the machine up (creates + provisions on first run). #>
   param([string]$Machine)
-  $m = Get-LabMachine $Machine
-  Write-Host "vagrant up $m --provider hyperv" -ForegroundColor Cyan
-  vagrant up $m --provider hyperv
+  Invoke-RigCli @("up", (Resolve-LabMachineName $Machine))
 }
 
-function vsync {
-  <# Re-push the repo root to /synthaea after host-side edits (one-way rsync). #>
+function Sync-LabMachine {
+  <# Re-push the rig's root to /synthaea after host-side edits (one-way rsync). Build-LabAgent
+     and Invoke-LabScenario sync first on their own. #>
   param([string]$Machine)
-  $m = Get-LabMachine $Machine
-  vagrant rsync $m
+  vagrant rsync (Resolve-LabMachineName $Machine)
 }
 
 function Invoke-LabRemote {
@@ -93,58 +113,68 @@ function Invoke-LabRemote {
     vagrant, and ssh -- otherwise embedded quotes / `$(...)` / leading-dash
     tokens (`curl -fSL ...`) get mangled and vagrant rejects them as options.
     ~/.cargo/env is sourced first; the snippet sets its own `set -e` if it wants
-    fail-fast (vbuild does, vscen deliberately does not).
+    fail-fast.
   #>
   param([string]$Machine, [string]$Script)
-  $m = Get-LabMachine $Machine
+  $m = Resolve-LabMachineName $Machine
   $full = "source ~/.cargo/env 2>/dev/null || true`n" + $Script
   $b64  = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($full))
   vagrant ssh $m -c "echo $b64 | base64 -d | bash"
 }
 
-function vssh {
-  <# Interactive shell, or `vssh ubuntu2204 'cmd; cmd'` to run a bash snippet. #>
+function Invoke-LabShell {
+  <# Interactive shell, or `Invoke-LabShell ubuntu2204 'cmd; cmd'` to run a bash snippet. #>
   param([string]$Machine, [string]$Command)
-  $m = Get-LabMachine $Machine
+  $m = Resolve-LabMachineName $Machine
   if ($Command) { Invoke-LabRemote $m $Command } else { vagrant ssh $m }
 }
 
-function vhalt {
+function Stop-LabMachine {
+  <# Halt the VM; Reset-LabMachine deletes it instead. #>
   param([string]$Machine)
-  vagrant halt (Get-LabMachine $Machine)
+  Invoke-RigCli @("down", (Resolve-LabMachineName $Machine))
 }
 
-function vreset {
+function Reset-LabMachine {
   <# Clean rollback: destroy the VM and bring a fresh one up + provisioned. #>
   param([string]$Machine)
-  $m = Get-LabMachine $Machine
-  Write-Host "vagrant destroy -f $m  &&  vagrant up $m" -ForegroundColor Yellow
-  vagrant destroy -f $m
-  vagrant up $m --provider hyperv
+  $m = Resolve-LabMachineName $Machine
+  Invoke-RigCli @("down", $m, "--destroy")
+  Invoke-RigCli @("up", $m)
 }
 
-function vbuild {
-  <# Build the agent in the VM (provisioning/agent-build.sh; extra flags pass through, e.g. "--offline"). #>
+function Build-LabAgent {
+  <# Build the agent in the VM (rig.py build: sync, then provisioning/agent-build.sh). $Flags
+     are rig.py build's, space-separated, e.g. "--offline" or "--ort static --ort-compat". #>
   param([string]$Machine, [string]$Flags = "")
-  Invoke-LabRemote (Get-LabMachine $Machine) "bash /synthaea/rig/provisioning/agent-build.sh $Flags"
+  Invoke-RigCli (@("build", (Resolve-LabMachineName $Machine)) + @(Split-LabWords $Flags))
 }
 
-function vstatus {
-  <# Verifier check: loads all sensor programs and reports (needs a prior vbuild). #>
+function Get-LabAgentStatus {
+  <# Verifier check: loads all sensor programs and reports (needs a prior Build-LabAgent). #>
   param([string]$Machine)
-  Invoke-LabRemote (Get-LabMachine $Machine) 'sudo $(sed -n "s/^agent_bin=//p" ~/synthaea-rig/build-info) status'
+  Invoke-LabRemote (Resolve-LabMachineName $Machine) 'sudo $(sed -n "s/^agent_bin=//p" ~/synthaea-rig/build-info) status'
 }
 
-function vscen {
+function Invoke-LabScenario {
   <#
-    Run scenarios through the lab runner and print the report path.
-      vscen                      # every default scenario
-      vscen "beacon dns-exfil"   # just these
-      vscen "argv" debian12
+    Run scenarios through the lab runner (rig.py run: sync, run, copy the report to reports/).
+      Invoke-LabScenario                      # every default scenario
+      Invoke-LabScenario "beacon dns-exfil"   # just these
+      Invoke-LabScenario "argv" debian12
   #>
   param([string]$Scenarios = "", [string]$Machine)
-  $m = Get-LabMachine $Machine
-  Invoke-LabRemote $m "bash /synthaea/rig/runner/run-scenarios.sh --machine $m $Scenarios"
+  Invoke-RigCli (@("run", (Resolve-LabMachineName $Machine)) + @(Split-LabWords $Scenarios))
 }
 
-Write-Host "lab helpers loaded: vprep vup vsync vssh vhalt vreset vbuild vstatus vscen  (default machine: $LabMachine)" -ForegroundColor Green
+Set-Alias -Name vprep -Value Initialize-LabSession
+Set-Alias -Name vup -Value Start-LabMachine
+Set-Alias -Name vsync -Value Sync-LabMachine
+Set-Alias -Name vssh -Value Invoke-LabShell
+Set-Alias -Name vhalt -Value Stop-LabMachine
+Set-Alias -Name vreset -Value Reset-LabMachine
+Set-Alias -Name vbuild -Value Build-LabAgent
+Set-Alias -Name vstatus -Value Get-LabAgentStatus
+Set-Alias -Name vscen -Value Invoke-LabScenario
+
+Write-Host "lab commands loaded: Initialize-LabSession (vprep), Start-LabMachine (vup), Sync-LabMachine (vsync), Invoke-LabShell (vssh), Stop-LabMachine (vhalt), Reset-LabMachine (vreset), Build-LabAgent (vbuild), Get-LabAgentStatus (vstatus), Invoke-LabScenario (vscen)  (default machine: $LabMachine)" -ForegroundColor Green

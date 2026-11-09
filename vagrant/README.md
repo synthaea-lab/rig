@@ -26,7 +26,10 @@ same from this directory, for example `vagrant up debian12 --provider libvirt`, 
 `destroy`) needs an elevated shell. Set `$env:VAGRANT_HYPERV_SWITCH = "Default Switch"` to
 skip the switch prompt (`rig.py` sets it). On a 16 GB host, run `wsl --shutdown` first:
 `0x800705AA` ("insufficient system resources") on `up` means less than about 2.5 GB free.
-`hyperv\helpers.ps1` has PowerShell shortcuts (`vprep`, `vup`, `vbuild`, `vscen`).
+`hyperv\helpers.ps1`, dot-sourced, adds PowerShell commands that call `rig.py` where it
+covers the step (`Initialize-LabSession`, `Start-LabMachine`, `Build-LabAgent`,
+`Invoke-LabScenario`, ...), with the short names kept as aliases (`vprep`, `vup`, `vbuild`,
+`vscen`, ...); its header lists them all.
 
 Once a VM runs, plain SSH with the key Vagrant generated works from any shell, without
 elevation:

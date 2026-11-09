@@ -2,7 +2,9 @@
 
 > Historical (2026-09): the Hyper-V run that validated PR #155, kept for its measurements.
 > For a new run use `python rig.py up`, `python rig.py build`, `python rig.py run` ([`README.md`](../README.md)); the
-> `vprep`/`vup` helpers below still work from `rig\vagrant\hyperv\helpers.ps1`. The one-off
+> `vprep`/`vup` short names below still work from `rig\vagrant\hyperv\helpers.ps1`, as aliases
+> of its Verb-Noun commands (`Initialize-LabSession`, `Start-LabMachine`, ...), which now call
+> `rig.py` for up, build, run and down. The one-off
 > `validate-155.sh` validator and the `lint.sh` gate below were removed from the rig once
 > their job was done (the agent's CI runs the same fmt + clippy gate);
 > `git log -- validate-155.sh lint.sh` finds them.
