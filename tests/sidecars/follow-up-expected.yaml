@@ -1,0 +1,6 @@
+# A sidecar fixture for `python rig.py check`: both runners must read what the `# reads:` lines state.
+# reads: RESPONSE-ESCALATE|1|0
+# A sidecar may expect a follow-up alert: then it is judged like any other technique.
+name: follow-up-expected
+expected_detections:
+  - technique: "RESPONSE-ESCALATE"

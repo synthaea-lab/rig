@@ -24,6 +24,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import zipfile
 from pathlib import Path
@@ -217,8 +218,9 @@ def cmd_down(name: str, destroy: bool) -> None:
 
 def cmd_check() -> None:
     """What CI can check without a VM: scripts parse and are shellcheck-clean, the catalogs
-    match the scenarios, the two runners read the sidecars alike,
-    runner/windows/validate-admin.ps1 loads its scenarios sibling."""
+    match the scenarios, the two runners read the sidecars alike, run-scenarios.sh judges
+    alert snapshots as tests/judge states, runner/windows/validate-admin.ps1 loads its
+    scenarios sibling."""
     bash = shutil.which("bash")
     if not bash:
         raise RigError("bash is needed for the checks (Git for Windows ships one)")
@@ -235,6 +237,8 @@ def cmd_check() -> None:
     else:
         print(f"skipped: no {scenarios} for the runner catalog check")
     check_runners_read_sidecars_alike(bash, scenarios)
+    check_runner_judges_as_stated(bash)
+    check_runner_judges_every_sidecar(bash, scenarios)
     check_admin_validation_loads_common()
 
 
@@ -301,6 +305,77 @@ def powershell_expectations(pwsh: str, sidecars: list[Path]) -> dict[Path, list[
         path, expectation = line.split("|", 1)
         read[Path(path)].append(expectation)
     return read
+
+
+JUDGE_FIXTURES = RIG / "tests" / "judge"
+
+
+def check_runner_judges_as_stated(bash: str) -> None:
+    """Golden test of run-scenarios.sh's verdict: each case in tests/judge holds an alerts
+    snapshot (alerts.ndjson, absent for none) and a `verdict` file naming the sidecar fixture
+    and the script's exit code in `# sidecar:` / `# rc:` lines; its other lines are what
+    `run-scenarios.sh --judge` must print."""
+    wrong = []
+    cases = sorted(case for case in JUDGE_FIXTURES.iterdir() if case.is_dir())
+    for case in cases:
+        stated = (case / "verdict").read_text(encoding="utf-8").splitlines()
+        sidecar = SIDECAR_FIXTURES / stated_value(stated, "sidecar")
+        judged = bash_verdict(bash, case / "alerts.ndjson", sidecar, int(stated_value(stated, "rc")))
+        if judged != [line for line in stated if not line.startswith("#")]:
+            wrong.append(f"  {case.name}: judged {judged}")
+    if wrong:
+        raise RigError("run-scenarios.sh judges these tests/judge cases otherwise than stated:\n"
+                       + "\n".join(wrong))
+    print(f"runner: run-scenarios.sh judges the {len(cases)} snapshot fixtures as stated", flush=True)
+
+
+def check_runner_judges_every_sidecar(bash: str, scenarios: Path) -> None:
+    """Each real sidecar's expectations are judged at their bounds: a snapshot with every
+    expected technique at min_count passes, one at min_count + tolerance + 1 fails."""
+    sidecars = sorted(scenarios.glob("*.yaml")) if scenarios.is_dir() else []
+    if not sidecars:
+        print(f"skipped: no sidecars in {scenarios} for the runner verdict check")
+        return
+    wrong = []
+    with tempfile.TemporaryDirectory(prefix="rig-judge-") as scratch:
+        snapshot = Path(scratch) / "alerts.ndjson"
+        for sidecar in sidecars:
+            expected = [line.split("|") for line in bash_expectations(bash, sidecar)]
+            at_min = {technique: int(min_count) for technique, min_count, _ in expected}
+            write_alert_snapshot(snapshot, at_min)
+            if verdict_status(bash_verdict(bash, snapshot, sidecar, 0)) != "PASS":
+                wrong.append(f"  {sidecar.name}: does not PASS with {at_min}")
+            if not expected:
+                continue
+            over = {technique: int(min_count) + int(tolerance) + 1 for technique, min_count, tolerance in expected}
+            write_alert_snapshot(snapshot, over)
+            if verdict_status(bash_verdict(bash, snapshot, sidecar, 0)) != "FAIL":
+                wrong.append(f"  {sidecar.name}: does not FAIL with {over}")
+    if wrong:
+        raise RigError("run-scenarios.sh misjudges these sidecars at their bounds:\n" + "\n".join(wrong))
+    print(f"runner: run-scenarios.sh judges {len(sidecars)} sidecars at their bounds", flush=True)
+
+
+def stated_value(lines: list[str], key: str) -> str:
+    """The value of a `# key: value` line."""
+    prefix = f"# {key}: "
+    return next(line[len(prefix):].strip() for line in lines if line.startswith(prefix))
+
+
+def write_alert_snapshot(path: Path, counts: dict[str, int]) -> None:
+    """An alerts snapshot with `count` alerts per technique, in the agent's NDJSON shape."""
+    alerts = [json.dumps({"technique": technique, "message": f"alert {index}"}, separators=(",", ":"))
+              for technique, count in counts.items() for index in range(count)]
+    path.write_text("".join(f"{alert}\n" for alert in alerts), encoding="utf-8", newline="\n")
+
+
+def bash_verdict(bash: str, snapshot: Path, sidecar: Path, rc: int) -> list[str]:
+    command = [bash, "runner/run-scenarios.sh", "--judge", snapshot.as_posix(), sidecar.as_posix(), str(rc)]
+    return subprocess.run(command, cwd=RIG, check=True, stdout=subprocess.PIPE, encoding="utf-8").stdout.splitlines()
+
+
+def verdict_status(verdict: list[str]) -> str:
+    return next(line.removeprefix("status=") for line in verdict if line.startswith("status="))
 
 
 def check_admin_validation_loads_common() -> None:

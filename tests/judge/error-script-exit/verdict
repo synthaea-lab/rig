@@ -1,0 +1,8 @@
+# a non-zero script exit is an ERROR when the counts are met, even with unexpected alerts
+# sidecar: defaults-and-quotes.yaml
+# rc: 1
+status=ERROR
+fired=T1059 ×2, T1071/T1041 ×1, T1486 ×3, RESPONSE-KILL ×1
+unexpected=T9999 ×1
+follow_ups=
+detail=script exited 1

@@ -1,0 +1,8 @@
+# other techniques are unexpected, sorted; follow-ups are listed apart and never judged
+# sidecar: defaults-and-quotes.yaml
+# rc: 0
+status=UNEXPECTED
+fired=T1059 ×2, T1071/T1041 ×1, T1486 ×3, RESPONSE-KILL ×1
+unexpected=BAYES ×1, T9999 ×2
+follow_ups=RESPONSE-ESCALATE ×4
+detail=

@@ -1,0 +1,8 @@
+# a follow-up the sidecar expects is judged, not set apart
+# sidecar: follow-up-expected.yaml
+# rc: 0
+status=FAIL
+fired=RESPONSE-ESCALATE ×3
+unexpected=
+follow_ups=
+detail=RESPONSE-ESCALATE fired 3×, allows ≤1
