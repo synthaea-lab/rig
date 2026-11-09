@@ -220,7 +220,7 @@ def cmd_check() -> None:
     """What CI can check without a VM: scripts parse and are shellcheck-clean, the catalogs
     match the scenarios, the two runners read the sidecars alike, run-scenarios.sh judges
     alert snapshots as tests/judge states, runner/windows/validate-admin.ps1 loads its
-    scenarios sibling."""
+    scenarios sibling, runner/LabAgent.ps1 writes the lab config and drives an agent by pid."""
     bash = shutil.which("bash")
     if not bash:
         raise RigError("bash is needed for the checks (Git for Windows ships one)")
@@ -240,6 +240,7 @@ def cmd_check() -> None:
     check_runner_judges_as_stated(bash)
     check_runner_judges_every_sidecar(bash, scenarios)
     check_admin_validation_loads_common()
+    check_lab_agent_lifecycle()
 
 
 def check_shellcheck_clean(scripts: list[Path]) -> None:
@@ -389,6 +390,17 @@ def check_admin_validation_loads_common() -> None:
         return
     subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-File",
                     str(RIG / "tests" / "validate-admin-resolves-siblings.ps1"), "-Root", str(ROOT)],
+                   cwd=RIG, check=True)
+
+
+def check_lab_agent_lifecycle() -> None:
+    """runner/LabAgent.ps1 writes the lab agent.toml of tests/lab-agent/ and starts, waits for
+    and stops an agent by pid (a fake one, where /bin/sh exists)."""
+    pwsh = shutil.which("pwsh")
+    if not pwsh:
+        print("skipped: no pwsh for the runner/LabAgent.ps1 lifecycle check")
+        return
+    subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-File", str(RIG / "tests" / "lab-agent.ps1")],
                    cwd=RIG, check=True)
 
 
