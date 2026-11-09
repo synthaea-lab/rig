@@ -1,0 +1,63 @@
+name: CI
+
+# `python rig.py check` is everything the rig can check without a VM: the scripts parse,
+# the runner catalogs cover the scenarios, the bash and PowerShell runners read the sidecars
+# alike, and runner/windows/validate-admin.ps1 finds its scenarios sibling. It needs the
+# scenarios repository next to the rig, so each job checks both out side by side:
+#   $GITHUB_WORKSPACE/rig        this repository
+#   $GITHUB_WORKSPACE/scenarios  synthaea-lab/scenarios at main
+# rig.py takes the parent of its checkout as the root, so no RIG_ROOT is needed.
+#
+# Linux runs the bash side (and the PowerShell parity, since ubuntu runners ship pwsh);
+# Windows runs the PowerShell scripts where they really run, with Git for Windows' bash.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Read-only token for every job: nothing here writes to the repo.
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: rig.py check (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # Windows runners default to core.autocrlf=true; check out the bytes .gitattributes
+      # asks for instead, as a developer clone would (LF shell scripts and sidecars).
+      - name: Keep line endings as committed
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: rig
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: synthaea-lab/scenarios
+          ref: main
+          path: scenarios
+          persist-credentials: false
+      # On Windows, C:\Windows\System32\bash.exe (the WSL launcher) can come first on PATH;
+      # rig.py must find Git for Windows' bash, as on a developer machine.
+      - name: Put Git for Windows' bash first on PATH
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Add-Content -Path $env:GITHUB_PATH -Value "$env:ProgramFiles\Git\bin"
+      - name: Tool versions
+        run: |
+          python --version
+          bash --version | head -n 1
+          pwsh --version
+      - name: python rig.py check
+        working-directory: rig
+        run: python rig.py check

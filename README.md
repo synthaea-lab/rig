@@ -61,7 +61,7 @@ The toolchain scripts the VMs are provisioned with live in the agent repository
 | `tests/` | Fixtures and helpers for `python rig.py check`: sidecar fixtures (`tests/sidecars/`), the PowerShell sidecar reader, the `validate-admin.ps1` sibling-path check |
 | `docs/` | [Machine matrix](docs/machine-matrix.md) (why each machine is in the matrix, what was validated where), [provisioning scripts](docs/provisioning.md), [Sysmon lab capture](docs/sysmon-capture.md), the historical [Hyper-V #155 runbook](docs/hyperv-runbook-155.md) |
 | `reports/` | Run reports copied from the VMs (gitignored, see [Reports](#reports)) |
-| `.github/` | CI: the DCO sign-off check |
+| `.github/` | CI: `python rig.py check` on Linux and Windows against `scenarios` at main, and the DCO sign-off check |
 | `LICENSE`, `NOTICE` | Apache-2.0 license and attribution notice |
 
 ## Prerequisites
@@ -145,7 +145,9 @@ bpf-linker, bindgen, aya-tool): 15 minutes on a fast link, an hour on a slow one
 - `check`: what CI can check without a VM: the scripts parse, the catalogs are valid, every
   scenario has a runner catalog row and a readable sidecar, and (with pwsh)
   `runner/windows/validate-admin.ps1` resolves and loads `scenarios/scenarios/common.ps1` under the
-  root.
+  root. CI (`.github/workflows/ci.yml`) runs it on every pull request and push to main, on
+  ubuntu-latest and windows-latest, with `synthaea-lab/scenarios` at main checked out next to
+  the rig.
 
 For anything else, plain Vagrant in `vagrant/` (`vagrant ssh debian12`,
 `vagrant provision debian12 --provision-with toolchain`, ...); set `RIG_ROOT` there too if
