@@ -13,7 +13,8 @@
   prints `REPORT: <path>`. Results: PASS, UNEXPECTED, FAIL, ERROR, SKIP, as on Linux.
 
   Needs an elevated session (WinRM gives the vagrant user one). ASCII only, Windows
-  PowerShell 5.1 compatible. Not yet run end to end on a lab VM.
+  PowerShell 5.1 compatible, strict mode (Latest) throughout, LabAgent.ps1 included. Not yet
+  run end to end on a lab VM.
 #>
 param(
   [string]$Machine = $env:COMPUTERNAME,
@@ -22,6 +23,7 @@ param(
   [string]$State = "C:\synthaea-rig",
   [Parameter(ValueFromRemainingArguments = $true)][string[]]$Names = @()
 )
+Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $scenDir = Join-Path $Root "scenarios\scenarios"
@@ -42,7 +44,11 @@ foreach ($line in Get-Content $catalog) {
   $rows[$c[0]] = [pscustomobject]@{ Set = $c[1]; Expect = $c[2]; Note = $c[3] }
 }
 
-function Get-Expectations([string]$Name) {
+function Get-Expectations {
+  <# The expected detections of scenario $Name: its sidecar's expected_detections when
+     $scenDir has a $Name.yaml, else the catalog's `expect` column. Returns one list of
+     (Technique, Min, Tol), wrapped so that an empty or single list stays a list. #>
+  param([Parameter(Mandatory)][string]$Name)
   $yaml = Join-Path $scenDir "$Name.yaml"
   $out = @()
   if (Test-Path $yaml) {
@@ -79,7 +85,9 @@ $stamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssZ")
 $run = Join-Path $State "runs\$stamp"
 New-Item -ItemType Directory -Force -Path $run, (Join-Path $State "reports") | Out-Null
 
-function Get-Counts([string]$File) {
+function Get-Counts {
+  <# How many times each technique fired in the alerts file $File (none if it is missing). #>
+  param([Parameter(Mandatory)][string]$File)
   $counts = @{}
   if (Test-Path $File) {
     foreach ($l in Get-Content $File) {
@@ -87,6 +95,21 @@ function Get-Counts([string]$File) {
     }
   }
   return $counts
+}
+
+function Invoke-ScenarioScript {
+  <# Runs the scenario $Script in a child Windows PowerShell, every output stream into the
+     file $Log, and returns its exit code. A scenario's errors are data, not the runner's:
+     Windows PowerShell 5.1 turns each line a native command writes to a redirected stderr
+     into an error record, which "Stop" would make terminating. So the preference is
+     "Continue" here, in this function's scope only; the caller's stays "Stop". #>
+  param(
+    [Parameter(Mandatory)][string]$Script,
+    [Parameter(Mandatory)][string]$Log
+  )
+  $ErrorActionPreference = "Continue"
+  & powershell -NoProfile -ExecutionPolicy Bypass -File $Script *> $Log
+  $LASTEXITCODE
 }
 
 $results = @()
@@ -109,10 +132,7 @@ foreach ($n in $Names) {
   $alerts = $labAgent.Alerts
   Start-Sleep -Seconds 2
 
-  $ErrorActionPreference = "Continue"
-  & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $scenDir "$n.ps1") *> (Join-Path $dir "scenario.log")
-  $rc = $LASTEXITCODE
-  $ErrorActionPreference = "Stop"
+  $rc = Invoke-ScenarioScript -Script (Join-Path $scenDir "$n.ps1") -Log (Join-Path $dir "scenario.log")
 
   # Settle: 3 s, then until the alert file has been quiet for 2 s (max 20 s).
   Start-Sleep -Seconds 3
@@ -156,7 +176,11 @@ $os = Get-CimInstance Win32_OperatingSystem
 $date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
 $report = Join-Path $State "reports\$date-$Machine.md"
 $tally = ($results | Group-Object Status | ForEach-Object { "$($_.Name) $($_.Count)" }) -join " / "
-function Cell([string]$s) { if ($s) { $s -replace '\|', '\|' } else { "-" } }
+function Format-Cell {
+  <# $Text as one Markdown table cell: pipes escaped, "-" when empty. #>
+  param([string]$Text)
+  if ($Text) { $Text -replace '\|', '\|' } else { "-" }
+}
 $md = @()
 $md += "# Lab run: $Machine, $date"
 $md += ""
@@ -165,8 +189,8 @@ $md += "| --- | --- |"
 $md += "| Machine | ``$Machine`` ($env:COMPUTERNAME), $($os.Caption) |"
 $md += "| OS build | $($os.Version) ($env:PROCESSOR_ARCHITECTURE) |"
 $md += "| Agent build | ``$agent``, $($info['profile']), ONNX Runtime $($info['ort']), built $($info['built_at']) in $($info['build_seconds'])s with $($info['rustc']) |"
-$md += "| Sources at build | $(Cell $info['source']) |"
-$md += "| Sources at run | $(Cell $Source) |"
+$md += "| Sources at build | $(Format-Cell $info['source']) |"
+$md += "| Sources at run | $(Format-Cell $Source) |"
 $md += "| Run | $($Names.Count) scenarios in ${total}s, one standalone agent per scenario, content = ``rules\`` |"
 $md += ""
 $md += "**$tally**"
@@ -175,7 +199,7 @@ $md += "| Scenario | Result | Expected | Fired | Unexpected | Time |"
 $md += "| --- | --- | --- | --- | --- | --- |"
 foreach ($r in $results) {
   $exp = ($r.Expect | ForEach-Object { "$($_.Technique) x$($_.Min)" + $(if ($_.Tol) { "(+$($_.Tol))" } else { "" }) }) -join ", "
-  $md += "| ``$($r.Name)`` | $($r.Status) | $(Cell $exp) | $(Cell $r.Fired) | $(Cell $r.Unexpected) | $($r.Seconds)s |"
+  $md += "| ``$($r.Name)`` | $($r.Status) | $(Format-Cell $exp) | $(Format-Cell $r.Fired) | $(Format-Cell $r.Unexpected) | $($r.Seconds)s |"
 }
 $md += ""
 $md += "## Details"

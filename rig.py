@@ -462,8 +462,9 @@ def cmd_check() -> None:
     match the scenarios, the two runners read the sidecars alike, run-scenarios.sh judges
     alert snapshots as tests/judge states, runner/windows/validate-admin.ps1 loads its
     scenarios sibling and its phases judge faked hosts as stated, runner/LabAgent.ps1 writes the
-    lab config and drives an agent by pid, and the scripts that share powershell/RigCommon.ps1
-    load it and get its admin check and summary writer as stated."""
+    lab config and drives an agent by pid, the scripts that share powershell/RigCommon.ps1
+    load it and get its admin check and summary writer as stated, and run-scenarios.ps1 is
+    strict and its functions behave."""
     bash = shutil.which("bash")
     if not bash:
         raise RigError("bash is needed for the checks (Git for Windows ships one)")
@@ -487,6 +488,7 @@ def cmd_check() -> None:
     check_admin_validation_phases()
     check_lab_agent_lifecycle()
     check_rig_common()
+    check_powershell_runner_functions()
 
 
 def check_unit_tests() -> None:
@@ -677,6 +679,17 @@ def check_rig_common() -> None:
         print("skipped: no pwsh for the powershell/RigCommon.ps1 check")
         return
     subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-File", str(RIG / "tests" / "rig-common.ps1")],
+                   cwd=RIG, check=True)
+
+
+def check_powershell_runner_functions() -> None:
+    """runner/run-scenarios.ps1 sets strict mode first and its functions count, format and run
+    a scenario as tests/run-scenarios-functions.ps1 states."""
+    pwsh = shutil.which("pwsh")
+    if not pwsh:
+        print("skipped: no pwsh for the runner/run-scenarios.ps1 function check")
+        return
+    subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-File", str(RIG / "tests" / "run-scenarios-functions.ps1")],
                    cwd=RIG, check=True)
 
 
