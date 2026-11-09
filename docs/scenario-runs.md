@@ -101,7 +101,8 @@ T1486|3|0
 RESPONSE-KILL|1|20
 ```
 
-`rig.py check` holds both runners to the same reading of every sidecar.
+Where `pwsh` is installed, `rig.py check` holds both runners to the same reading of every
+sidecar ([testing.md](testing.md#rigpy-check)).
 
 ## One scenario
 
@@ -159,7 +160,9 @@ NDJSON snapshot (a missing snapshot counts as no alert), then:
 3. Otherwise, any technique that fired and is not expected makes it **UNEXPECTED**.
 4. Otherwise **PASS**.
 
-A FAIL with a non-zero script exit also notes the exit code. Techniques are listed sorted.
+A FAIL with a non-zero script exit also notes the exit code. `fired` lists the expected
+techniques in sidecar order, with a count of 0 for one that never fired; `unexpected` and
+`follow_ups` are sorted by technique.
 
 **Follow-ups.** The agent adds a `RESPONSE-ESCALATE` record on top of detections when it
 escalates a process. It accompanies most scenarios and is not a detection in its own right,

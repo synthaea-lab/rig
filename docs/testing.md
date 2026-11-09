@@ -11,10 +11,10 @@ idempotent so that a VM run is a confirmation rather than the only test.
 python3 rig.py check     # python rig.py check on Windows, or: just check
 ```
 
-It needs bash (on Windows, Git for Windows' bash) and the
-[scenarios](https://github.com/synthaea-lab/scenarios) checkout in the root. `shellcheck`
-and PowerShell 7 (`pwsh`) are optional: a check whose tool is missing prints `skipped:` and
-the reason instead of failing, so read the output, not only the exit code. The checks run in
+It needs bash (on Windows, Git for Windows' bash). The
+[scenarios](https://github.com/synthaea-lab/scenarios) checkout in the root, `shellcheck`
+and PowerShell 7 (`pwsh`) are optional: a check whose input or tool is missing prints
+`skipped:` and the reason instead of failing, so read the output, not only the exit code. The checks run in
 this order ([`run_checks`](../rig.py)), and the first failure stops the run with exit 1:
 
 | Check | What it proves |

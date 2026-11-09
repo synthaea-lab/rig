@@ -52,7 +52,8 @@ Windows box ships, so nothing needs installing before the rig can drive a guest.
 - **Readiness** is the first event written to `events.jsonl`, within 45 s, then 2 s more:
   ETW has no single "listening" line, and a written event proves the trace session runs.
 - **Script.** Each `.ps1` runs in a child `powershell -NoProfile -ExecutionPolicy Bypass`,
-  all output streams to `scenario.log`. The error preference is `Continue` inside that
+  all output streams to `scenario.log`, with no timeout and without the `EVENTS`, `ALERTS`
+  and `AGENT_PID` variables the Linux runner sets. The error preference is `Continue` inside that
   function only: under `Stop`, Windows PowerShell 5.1 turns each stderr line of a native
   command into a terminating error, and a scenario's errors are data for the verdict, not a
   reason to stop the runner.

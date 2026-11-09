@@ -21,8 +21,10 @@ What the rig does not do, or does only partly. Each item says what it means for 
 - **`--ort-compat` changes the C library under test.** A Debian 12 or Ubuntu 22.04 result
   built that way runs the next release's glibc and libstdc++ on the row's kernel. The report
   says so; `--ort static` avoids it at the cost of a much longer build.
-- **Opt-in scenarios need manual setup.** Web, database, canary and control-plane scenarios
-  need services or configuration the runner does not install; their catalog notes say what.
+- **Opt-in scenarios need manual setup.** The web-server and database scenarios (Linux) need
+  services and `[[logs.sources]]` entries the runner does not install, and the BITS and
+  container scenarios (Windows) are self-checking scripts meant to be run directly; their
+  catalog notes say what.
 
 ## Runner behaviour
 

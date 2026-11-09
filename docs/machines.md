@@ -56,9 +56,11 @@ Silicon hosts, arm64 guests) and `virtualbox` (any x86_64 host, optional).
 
 ### Validation
 
-`python3 rig.py check` validates the catalog with [`catalog_problems`](../rig.py) before
-anything else uses it, so a typo fails there with the machine named, not halfway through a
-`vagrant up`. It reports every problem at once:
+`python3 rig.py check` validates the catalog with [`check_catalog`](../rig.py), which
+collects every problem [`catalog_problems`](../rig.py) finds, so a typo fails there with the
+machine named rather than halfway through a `vagrant up`. The other commands and the
+Vagrantfile read the catalog without validating it: run `check` after every edit. It
+reports every problem at once:
 
 - `defaults` has a `linux` and a `windows` entry, each with a positive whole `memory_mb`
   and a valid `provision`.

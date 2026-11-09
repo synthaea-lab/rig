@@ -28,7 +28,7 @@ command yourself in the guest (`vagrant ssh <machine>` from `vagrant/`) to see i
 | `<machine> has no box for the <provider> provider` | The catalog has no box for this host's provider (no Windows or Arch guest on Apple Silicon, for example). `RIG_PROVIDER` selects another installed provider |
 | `vagrant rsync` ignores a new exclude or folder | Vagrant records the synced folders at `up`; run `vagrant reload <machine>` once |
 | `/synthaea` stays empty in the guest | The box has no `rsync`. Install it in the guest, then `vagrant rsync <machine>` |
-| Hyper-V `up` fails with `0x800705AA` | Less than about 2.5 GB free on the host. Run `wsl --shutdown`, close memory-heavy applications, halt other VMs |
+| Hyper-V `up` fails with `0x800705AA` | The host cannot give the VM its 2 GB startup memory. Run `wsl --shutdown`, close memory-heavy applications, halt other VMs ([windows.md](windows.md#memory)) |
 | Hyper-V prompts for SMB credentials on `up` | A box that defaults `/vagrant` to SMB. The rig's Vagrantfile disables that share; make sure vagrant runs from `vagrant/` (or through `rig.py`) |
 | The guest cannot resolve `static.crates.io` on Hyper-V | Default Switch DNS. See [windows.md](windows.md#default-switch-networking) |
 | A Vagrant command from PowerShell mangles a bash snippet | Use `Invoke-LabShell` (`vssh`) from the Hyper-V helpers, which sends the snippet base64-encoded ([windows.md](windows.md#powershell-helpers)) |
@@ -45,6 +45,6 @@ command yourself in the guest (`vagrant ssh <machine>` from `vagrant/`) to see i
 | The `--alerts` file fails with `EACCES` when running the agent by hand | Let the agent create the file. Under `fs.protected_regular`, root cannot open a file pre-created by another user in a sticky directory such as `/tmp` |
 | `T1562.001` fires in a scenario that sends no signal | Stopping the agent is itself a signal to a security process. The runner snapshots the alerts before stopping it, so reports are not affected; when running by hand, read the alerts before stopping the agent |
 | A `BAYES` or lineage alert names `sshd` or your shell | The operator's own session, seen by the correlator. Reported as UNEXPECTED |
-| `timestomp-linux` is SKIP on kernel 6.1 or 5.15 | The `inode_setattr` LSM hook needs the 6.3 signature; the agent disables it, and the report's warnings show why |
+| `timestomp-linux` is SKIP on kernel 6.1 or 5.15 | Expected: its catalog row has `min_kernel` 6.3, because the `inode_setattr` LSM hook it relies on has the `(idmap, dentry, attr)` signature only from 6.3. The runner skips it without starting an agent |
 | A scenario's console output is truncated under PowerShell | PowerShell drops interleaved output from `vagrant ssh`. Trust the report and the files in the run directory, not the screen |
 | `rig.py run` ends with `the runner wrote no report` | The runner stopped before its report (exit 2: the guest is not ready; exit 1: the catalog check failed). Its own message is above |
