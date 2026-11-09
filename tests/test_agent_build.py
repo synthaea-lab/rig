@@ -222,6 +222,12 @@ class StaticRuntime(FakeGuest):
                       result.stdout)
         self.assertEqual(self.build_info()["ort"], "static")
 
+    def test_stops_when_the_link_flags_cannot_be_generated(self) -> None:
+        self.write(self.src / "packaging" / "toolchain" / "ort-static-link-flags.sh",
+                   'echo "no .a files found under $ORT_LIB_LOCATION" >&2\nexit 1\n')
+        self.assert_stopped(self.run_build("--ort", "static"), "no .a files found under")
+        self.assertEqual(self.log("cargo.log"), "")
+
     def test_static_is_not_possible_offline(self) -> None:
         self.assert_stopped(self.run_build("--ort", "static", "--offline"), "no offline bundle in the guest")
         self.make_bundle()
