@@ -32,6 +32,7 @@ import time
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 RIG = Path(__file__).resolve().parent
 ROOT = Path(os.environ.get("RIG_ROOT") or os.environ.get("SYNTHAEA_ROOT") or RIG.parent).resolve()
@@ -86,15 +87,42 @@ def vagrant_env() -> dict[str, str]:
     return env
 
 
-def vagrant(*args: str, capture: bool = False) -> subprocess.CompletedProcess:
-    """Runs vagrant in vagrant/ with this host's provider as the default."""
+def vagrant_command(args: tuple[str, ...]) -> list[str]:
     exe = shutil.which("vagrant")
     if not exe:
         raise RigError("vagrant is not installed (README.md, 'Prerequisites')")
-    if not capture:
-        print(f"+ (vagrant/) vagrant {' '.join(args)}", flush=True)
-    return subprocess.run([exe, *args], cwd=VAGRANT_DIR, env=vagrant_env(), text=True,
-                          encoding="utf-8", errors="replace", check=not capture, capture_output=capture)
+    return [exe, *args]
+
+
+def echo_vagrant(args: tuple[str, ...] | list[str]) -> None:
+    print(f"+ (vagrant/) vagrant {' '.join(args)}", flush=True)
+
+
+def vagrant_run(*args: str) -> None:
+    """Runs vagrant in vagrant/ with this host's provider as the default; a failure raises
+    CalledProcessError."""
+    command = vagrant_command(args)
+    echo_vagrant(args)
+    subprocess.run(command, cwd=VAGRANT_DIR, env=vagrant_env(), check=True)
+
+
+def vagrant_capture(*args: str) -> subprocess.CompletedProcess:
+    """Runs vagrant like vagrant_run, quietly, and returns its exit code and output."""
+    return subprocess.run(vagrant_command(args), cwd=VAGRANT_DIR, env=vagrant_env(), check=False,
+                          capture_output=True, text=True, encoding="utf-8", errors="replace")
+
+
+def vagrant_stream(*args: str, on_line: Callable[[str], None]) -> int:
+    """Runs vagrant like vagrant_run, echoes each line of its output as it comes and hands
+    it to `on_line`, and returns its exit code."""
+    command = vagrant_command(args)
+    echo_vagrant(args)
+    with subprocess.Popen(command, cwd=VAGRANT_DIR, env=vagrant_env(), stdout=subprocess.PIPE,
+                          text=True, encoding="utf-8", errors="replace") as proc:
+        for line in proc.stdout:
+            print(line, end="", flush=True)
+            on_line(line)
+    return proc.returncode
 
 
 class Flag(str):
@@ -199,7 +227,7 @@ def sync(name: str, spec: dict) -> None:
     """Pushes the sources: rsync for Linux guests, a zip upload for Windows guests (WinRM)."""
     guest = Guest.of(spec)
     if not guest.windows:
-        vagrant("rsync", name)
+        vagrant_run("rsync", name)
         return
     archive = RIG / ".offline" / "synthaea-src.zip"
     archive.parent.mkdir(parents=True, exist_ok=True)
@@ -212,8 +240,8 @@ def sync(name: str, spec: dict) -> None:
             for rel in files:
                 if (base / rel).is_file():
                     zf.write(base / rel, f"{part}/{rel}")
-    vagrant("upload", str(archive), "C:/synthaea-src.zip", name)
-    vagrant(*guest.shell(name, guest.command("Expand-Archive", Flag("-Force"), "C:\\synthaea-src.zip", WIN_SRC)))
+    vagrant_run("upload", str(archive), "C:/synthaea-src.zip", name)
+    vagrant_run(*guest.shell(name, guest.command("Expand-Archive", Flag("-Force"), "C:\\synthaea-src.zip", WIN_SRC)))
 
 
 # --- commands -------------------------------------------------------------------------
@@ -230,7 +258,7 @@ def cmd_list() -> None:
 def cmd_up(name: str) -> None:
     machine(name)
     need_siblings()
-    vagrant("up", name, "--provider", provider())
+    vagrant_run("up", name, "--provider", provider())
 
 
 def build_command(name: str, guest: Guest, offline: bool, ort: str, ort_compat: bool) -> list[str]:
@@ -251,7 +279,7 @@ def run_command(name: str, guest: Guest, scenarios: list[str]) -> list[str]:
 
 
 def print_dry_run(args: list[str]) -> None:
-    print(f"+ (vagrant/) vagrant {' '.join(args)}")
+    echo_vagrant(args)
     print("(dry run: nothing synced or run)")
 
 
@@ -267,7 +295,10 @@ def cmd_build(name: str, offline: bool, ort: str, ort_compat: bool, dry_run: boo
     if offline and not guest.windows:
         subprocess.run([sys.executable, str(RIG / "tools" / "offline_bundle.py"), "--push", name],
                        check=True, env=vagrant_env())
-    vagrant(*args)
+    vagrant_run(*args)
+
+
+REPORT_LINE = "REPORT: "
 
 
 def cmd_run(name: str, scenarios: list[str], dry_run: bool = False) -> int:
@@ -279,25 +310,30 @@ def cmd_run(name: str, scenarios: list[str], dry_run: bool = False) -> int:
         print_dry_run(args)
         return 0
     sync(name, spec)
-    print(f"+ (vagrant/) vagrant {' '.join(args)}", flush=True)
-    proc = subprocess.Popen([shutil.which("vagrant") or "vagrant", *args], cwd=VAGRANT_DIR, env=vagrant_env(),
-                            text=True, stdout=subprocess.PIPE, encoding="utf-8", errors="replace")
-    report = None
-    for line in proc.stdout:
-        print(line, end="", flush=True)
-        if line.startswith("REPORT: "):
-            report = line[len("REPORT: "):].strip()
-    rc = proc.wait()
+    report = ""
+
+    def note_report(line: str) -> None:
+        """Keeps the guest path of the runner's last `REPORT: <path>` line."""
+        nonlocal report
+        if line.startswith(REPORT_LINE):
+            report = line[len(REPORT_LINE):].strip()
+
+    rc = vagrant_stream(*args, on_line=note_report)
     if not report:
         raise RigError("the runner wrote no report (see its output above)")
-    fetched = vagrant(*guest.shell(name, guest.read_file(report)), capture=True)
+    print(f"report: {fetch_report(name, guest, report)}")
+    return rc
+
+
+def fetch_report(name: str, guest: Guest, path: str) -> Path:
+    """Copies the report at `path` in machine `name` to reports/ (LF line endings)."""
+    fetched = vagrant_capture(*guest.shell(name, guest.read_file(path)))
     if fetched.returncode != 0:
-        raise RigError(f"could not fetch {report} from {name}: {fetched.stderr.strip()}")
-    dest = REPORTS / Path(report.replace("\\", "/")).name
+        raise RigError(f"could not fetch {path} from {name}: {fetched.stderr.strip()}")
+    dest = REPORTS / Path(path.replace("\\", "/")).name
     REPORTS.mkdir(exist_ok=True)
     dest.write_text(fetched.stdout.replace("\r\n", "\n"), encoding="utf-8")
-    print(f"report: {dest}")
-    return rc
+    return dest
 
 
 def cmd_report(name: str | None) -> None:
@@ -313,7 +349,7 @@ def cmd_report(name: str | None) -> None:
 
 def cmd_down(name: str, destroy: bool) -> None:
     machine(name)
-    vagrant(*(["destroy", "--force", name] if destroy else ["halt", name]))
+    vagrant_run(*(["destroy", "--force", name] if destroy else ["halt", name]))
 
 
 def cmd_check() -> None:
