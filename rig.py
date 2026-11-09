@@ -468,7 +468,8 @@ def cmd_check() -> None:
     scenarios sibling and its phases judge faked hosts as stated, runner/LabAgent.ps1 writes the
     lab config and drives an agent by pid, the scripts that share powershell/RigCommon.ps1
     load it and get its admin check and summary writer as stated, run-scenarios.ps1 is
-    strict and its functions behave, and it binds scenario names to -Names only."""
+    strict and its functions behave, it binds scenario names to -Names only, and
+    vagrant/hyperv/helpers.ps1 names its commands Verb-Noun behind the short aliases."""
     bash = shutil.which("bash")
     if not bash:
         raise RigError("bash is needed for the checks (Git for Windows ships one)")
@@ -507,6 +508,7 @@ def run_checks(bash: str) -> None:
     check_rig_common()
     check_powershell_runner_functions()
     check_powershell_runner_binding()
+    check_hyperv_helpers()
 
 
 def check_unit_tests() -> None:
@@ -719,6 +721,17 @@ def check_powershell_runner_binding() -> None:
         print("skipped: no pwsh for the runner/run-scenarios.ps1 binding check")
         return
     subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-File", str(RIG / "tests" / "run-scenarios-binding.ps1")],
+                   cwd=RIG, check=True)
+
+
+def check_hyperv_helpers() -> None:
+    """vagrant/hyperv/helpers.ps1 names its commands Verb-Noun, keeps vup, vssh, ... as their
+    aliases and runs the rig.py or vagrant command lines tests/hyperv-helpers.ps1 states."""
+    pwsh = shutil.which("pwsh")
+    if not pwsh:
+        print("skipped: no pwsh for the vagrant/hyperv/helpers.ps1 check")
+        return
+    subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-File", str(RIG / "tests" / "hyperv-helpers.ps1")],
                    cwd=RIG, check=True)
 
 
