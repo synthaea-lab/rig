@@ -1,34 +1,67 @@
-# Lab Machine Matrix
+# Machine matrix
 
-The canonical list of machines the lab must be able to produce, and what each one proves.
-How to boot a row (the box per provider, its provisioning) is in `machines.json`, the one
-catalog the harness (`vagrant/`) and `rig.py` read; `README.md` has the box table. The
-Windows and macOS rows carry their own host constraints.
+The targets the rig must be able to produce, and what each one proves about the agent. How
+to boot a row (the box per provider, its provisioning) is in
+[`machines.json`](../machines.json); its `matrix` field names a row of the table below, so
+keep the row names stable. [machines.md](machines.md) describes the catalog.
 
-## Why a kernel matrix
+## Why a matrix
 
-The eBPF probes are entirely tracepoint-driven — parent lineage from `sched_process_fork`
-fields (#53), the executed image from `sched_process_exec` (#111), argv from
-`/proc/<pid>/cmdline` read in userspace (#152). No `task_struct`/`mm_struct` frozen
-offset, no `vmlinux` BTF bindings. Every kernel row is still a genuine portability test
-case — tracepoint record layout, `__data_loc` handling, BTF at load, and verifier
-behaviour all drift across versions — but there is no per-kernel offset table to
-regenerate any more.
+The agent's Linux sensors are eBPF programs driven by tracepoints and BPF-LSM hooks. Parent
+lineage comes from `sched_process_fork` fields, the executed image from
+`sched_process_exec`, and the command line from `/proc/<pid>/cmdline` read in user space, so
+there is no table of per-kernel `task_struct` offsets to maintain. Every kernel is still a
+portability test case: the tracepoint record layout, `__data_loc` string handling, the BTF
+available at load time and the verifier's rules all drift across versions. The
+`sched_process_fork` layout, for one, carries `comm` inline on 6.8 and 6.12 kernels and as
+a `__data_loc` field on newer ones. The C library matters too: the agent links a prebuilt
+ONNX Runtime that needs a recent glibc and libstdc++, and musl is a separate build.
 
-| Machine | Family | Kernel | Proves |
-| --- | --- | --- | --- |
-| ubuntu-24.04 (primary) | Debian | 6.8 | primary dev/validation target — validated 2026-09-24 on Hyper-V (`vagrant/`, then `vagrant-hyperv/`) (26/26 programs, argv + lineage with #416); inline-comm `sched_process_fork` |
-| ubuntu-22.04 | Debian | 5.15 | oldest supported LTS kernel; the prebuilt ONNX Runtime needs `--ort-compat` (noble, not yet validated) or `--ort static` |
-| debian-12 | Debian | 6.1 | Debian oldstable — validated 2026-11-08 on libvirt (`vagrant/`, `generic/debian12`): agent built in the guest with `--offline`, 7/7 programs accepted by the verifier (the `inode_setattr` LSM hook stays off before 6.3, so `timestomp-linux` is skipped), the 15 default scenarios run: [`reports/2026-11-08-debian12.md`](../reports/2026-11-08-debian12.md). The prebuilt ONNX Runtime only links after `--ort-compat` (glibc + libstdc++ from trixie, `README.md`) |
-| debian-13 | Debian | 6.12 | newest kernel drift — validated 2026-09-24 on Hyper-V (`vagrant/`, then `vagrant-hyperv/`) (26/26 programs, argv + lineage with #416); still inline-comm `sched_process_fork` (`__data_loc` first seen on alpine 6.18, #415) |
-| fedora-41 | RPM | 6.11 GA, 6.17 with updates (validated on 6.17.7) | RPM family, SELinux Enforcing — validated 2026-09-30 on Hyper-V (`vagrant/`, then `vagrant-hyperv/`) (`fedora41`): agent + eBPF build natively (clang/LLVM 19 + prebuilt bpf-linker), 51/51 programs, `lineage.sh` 3/3 and `argv.sh` on a `__data_loc` `sched_process_fork` (#415/#416), the packaged systemd unit runs under SELinux Enforcing since #558/#559/#581 (re-run 2026-10-02 on 6.17.7: no AVC denial, see `vagrant-hyperv/README.md`) |
-| rocky-9 | RPM (RHEL) | 5.14 | enterprise RHEL-clone baseline; replay-only |
-| arch (rolling) | pacman | 7.2 (validated 2026-09-21; moves) | rolling kernel/LLVM drift target for #53 CO-RE (#124) — beacon.sh end-to-end confirmed (T1071/T1041 fired), previously blocked on #199 |
-| alpine-3.24 | musl/BusyBox | 6.18 (virt) | musl libc + BusyBox userland, not glibc (#123); `vagrant/` box (`generic/alpine319`) tracks 3.19/6.6, the newest Vagrant Cloud publishes with a virtualbox/amd64 provider — not kernel-version-sensitive for this row's purpose; native `.apk` packaging (`packaging/linux/alpine/APKBUILD`, OpenRC service) validated live on `alpine-vm` 2026-10-19: full `abuild -r`, clean install/capabilities/OpenRC lifecycle, agent stable with real `setresuid`/`setresgid` triggered — same static-musl build and Cargo-resolved opt-level as the `.deb`/`.rpm` packages, not `abuild`'s own size-first defaults (see the APKBUILD's `build()`); #902's first gap (nothing built the APKBUILD) closed by `linux-apk-portability.yml` (2026-10-21) — build, install, a bumped-`pkgrel` upgrade and removal all run on every push or PR that touches the packaged paths (`apps/agent/**`, `packaging/linux/**`, ...); re-validated the same lifecycle live on `alpine-vm` first (install → upgrade → restart → identical `CapAmb`/`CapEff` before and after → clean removal) since GitHub's shared runners can't load the real eBPF probes any more than `linux-deb-portability.yml`'s own job does, so the CI job itself only checks `--help`, the installed files and that the `capabilities=` directive is unchanged across the upgrade — #902's second gap (a running service, state and capabilities checked through an actual `apk upgrade`) stays open, covered only by the `alpine-vm` run above, not by CI |
-| windows-11 / windows-10 | Windows client | — | ETW sensor validation |
-| windows-server | Windows server | — | ETW on server SKUs |
-| macos | macOS | — | EndpointSecurity validation — real hardware or Tart/UTM; no Vagrant box |
+On Windows the sensors are ETW consumers, the Event Log and a few socket and service APIs,
+so the rows are about Windows SKUs rather than kernels.
 
-Additions to this file are the trigger for catalog updates (`machines.json`), not the other
-way around. A validation worth recording here cites its report, committed under `reports/`
-(`README.md`, "Reports").
+## Targets
+
+| Row (`matrix`) | Machine | Family | Kernel | Proves |
+| --- | --- | --- | --- | --- |
+| `ubuntu-24.04` | `ubuntu2404` | Debian | 6.8 | The primary development and validation target |
+| `ubuntu-22.04` | `ubuntu2204` | Debian | 5.15 | The oldest supported LTS kernel, with the strictest verifier of the Debian family |
+| `debian-12` | `debian12` | Debian | 6.1 | Debian oldstable; a kernel without the 6.3 `inode_setattr` LSM signature |
+| `debian-13` | `debian13` | Debian | 6.12 | The newest Debian kernel |
+| `fedora-41` | `fedora41` | RPM | 6.11, 6.17 with updates | The RPM family, SELinux enforcing, a `__data_loc` `sched_process_fork` once updated |
+| `rocky-9` | `rocky9` | RPM (RHEL) | 5.14 | The enterprise RHEL-clone baseline; replay only (no LLVM recent enough for the probes) |
+| `arch (rolling)` | `arch` | pacman | rolling | Kernel and LLVM drift as it happens |
+| `alpine-3.24` | `alpine319` | musl, BusyBox | 6.18 (`virt`) | musl libc and a BusyBox userland instead of glibc and coreutils |
+| `windows-11 / windows-10` | `win11`, `win10` | Windows client | | ETW sensors on client SKUs |
+| `windows-server` | `winserver` | Windows server | | ETW sensors on server SKUs |
+| `macos` | none | macOS | | EndpointSecurity sensors; real hardware or a local hypervisor, no Vagrant box |
+
+The Alpine row targets 3.24, but the newest Alpine Vagrant box is `generic/alpine319`
+(3.19, kernel 6.6). The row is about musl and BusyBox, not a kernel version, so the older
+box still covers it.
+
+## Validation status
+
+A row is validated when the agent built in the guest, `agent status` loaded every eBPF
+program through that kernel's verifier, and scenarios ran. Evidence is a report committed
+under [`reports/`](../reports/) ([reports.md](reports.md#recording-a-result)).
+
+| Row | Status | Evidence |
+| --- | --- | --- |
+| `debian-12` | Validated on libvirt (`generic/debian12`), built with `--offline` and `--ort-compat`: 7 eBPF programs accepted, the 15 default scenarios run (`timestomp-linux` skipped below 6.3) | [`reports/2026-11-08-debian12.md`](../reports/2026-11-08-debian12.md) |
+| `ubuntu-24.04` | Validated on Hyper-V before the current runner existed: programs accepted, argv and lineage checks passed | No report committed |
+| `debian-13` | Same as `ubuntu-24.04` | No report committed |
+| `fedora-41` | Validated on Hyper-V on kernel 6.17.7: native build with clang/LLVM 19, programs accepted, lineage and argv checks on a `__data_loc` `sched_process_fork`, packaged service running under SELinux enforcing with no AVC denial | No report committed |
+| `arch (rolling)` | Validated on kernel 7.2: the beacon scenario fired end to end | No report committed |
+| `ubuntu-22.04` | Not validated; the `--ort-compat` route for this release is untested | |
+| `rocky-9`, `alpine-3.24` | Not validated with the rig | |
+| Windows rows | The Windows runner has not yet run end to end on a lab VM | |
+
+A row without a committed report should be re-run with `python3 rig.py run <machine>` before
+a result is quoted, and the report committed.
+
+## Changing the matrix
+
+This page comes first: a new target is added here, with what it proves, and only then to
+`machines.json` ([machines.md](machines.md#adding-a-machine)). A validation worth recording
+here cites its committed report.
