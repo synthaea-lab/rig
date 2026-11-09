@@ -7,10 +7,15 @@
 # Checks the three things userspace/build.rs needs (bpf-linker on PATH, a nightly
 # with rust-src, an LLVM major that matches), then does a verbose probe build so
 # the real rustc/bpf-linker error is visible instead of buried by aya-build.
-set -u
+#
+# Strict mode: a missing tool or a grep that matches nothing is a finding to print,
+# not a reason to stop, so every such check ends in `|| echo ...` or `|| true`.
+set -euo pipefail
 # Written by the guest's provisioning: there is nothing for shellcheck to follow.
 # shellcheck source=/dev/null
 source "$HOME/.cargo/env" 2>/dev/null || true
+
+agent_src=${SYNTHAEA_SRC:-/synthaea/agent}
 
 # `ls -ld` each entry of $1 whose name mentions bpf, aya or bindgen ("none" if there is none).
 list_toolchain_entries() {
@@ -23,6 +28,14 @@ list_toolchain_entries() {
   [ "$found" = 1 ] || echo "  none"
 }
 
+# True when rustup lists a toolchain whose name starts with $1. The list is captured
+# first so `grep -q` exiting early cannot SIGPIPE rustup and fail the pipeline.
+has_toolchain() {
+  local toolchains
+  toolchains=$(rustup toolchain list) || return 1
+  grep -q "^$1" <<<"$toolchains"
+}
+
 echo "=== bpf-linker on PATH ==="
 command -v bpf-linker && bpf-linker --version || echo "  bpf-linker NOT on PATH — run: vagrant provision <machine>"
 echo
@@ -33,18 +46,28 @@ echo "=== /usr/local/bin symlinks (sudo's PATH) ==="
 list_toolchain_entries /usr/local/bin
 echo
 echo "=== eBPF probe toolchain (LLVM major) ==="
-_ebpf_tc=$(tr -d '[:space:]' 2>/dev/null < "${SYNTHAEA_SRC:-/synthaea/agent}/packaging/toolchain/ebpf-toolchain.txt" || echo nightly)
-echo "  (ebpf-toolchain.txt: $_ebpf_tc)"
-rustup toolchain list | grep -q "^$_ebpf_tc" || echo "  $_ebpf_tc not installed — rustup toolchain install $_ebpf_tc --profile minimal --component rust-src"
-rustup toolchain list | grep -q "^$_ebpf_tc" && { rustup run "$_ebpf_tc" rustc -Vv 2>&1 | grep -i llvm; }
+ebpf_toolchain=$(tr -d '[:space:]' 2>/dev/null < "$agent_src/packaging/toolchain/ebpf-toolchain.txt" || echo nightly)
+echo "  (ebpf-toolchain.txt: $ebpf_toolchain)"
+toolchain_installed=0
+if has_toolchain "$ebpf_toolchain"; then
+  toolchain_installed=1
+  rustup run "$ebpf_toolchain" rustc -Vv 2>&1 | grep -i llvm || true
+else
+  echo "  $ebpf_toolchain not installed — rustup toolchain install $ebpf_toolchain --profile minimal --component rust-src"
+fi
 echo
 echo "=== probe toolchain rust-src component ==="
-rustup toolchain list | grep -q "^$_ebpf_tc" && { rustup component list --installed --toolchain "$_ebpf_tc" 2>/dev/null | grep rust-src || echo "  rust-src missing — rustup component add rust-src --toolchain $_ebpf_tc"; }
+if [ "$toolchain_installed" = 1 ]; then
+  rustup component list --installed --toolchain "$ebpf_toolchain" 2>/dev/null | grep rust-src \
+    || echo "  rust-src missing — rustup component add rust-src --toolchain $ebpf_toolchain"
+fi
 echo
 echo "=== system LLVM ==="
 llvm-config --version 2>&1 || echo "  no llvm-config"
 ls -d /usr/lib/llvm-* 2>/dev/null || echo "  no /usr/lib/llvm-*"
 echo
 echo "=== verbose probe build ==="
-cd /synthaea/agent && cargo build --release -p sensor-linux 2>&1 \
-  | grep -iE 'bpf-linker|error|warning: sensor-linux|embedded|Compiling sensor|Finished' | head -30
+cd "$agent_src"
+# The build's own status is not the finding: the filtered lines are.
+cargo build --release -p sensor-linux 2>&1 \
+  | grep -iE 'bpf-linker|error|warning: sensor-linux|embedded|Compiling sensor|Finished' | head -30 || true
