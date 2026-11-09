@@ -1,0 +1,8 @@
+# FAIL wins over the script exit, which is appended to the detail
+# sidecar: defaults-and-quotes.yaml
+# rc: 137
+status=FAIL
+fired=T1059 ×2, T1071/T1041 ×1, T1486 ×0, RESPONSE-KILL ×1
+unexpected=
+follow_ups=
+detail=T1486 fired 0×, needs ≥3; script exited 137

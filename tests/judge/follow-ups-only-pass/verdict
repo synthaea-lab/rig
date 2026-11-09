@@ -1,0 +1,8 @@
+# follow-ups alone do not make a run UNEXPECTED
+# sidecar: defaults-and-quotes.yaml
+# rc: 0
+status=PASS
+fired=T1059 ×2, T1071/T1041 ×1, T1486 ×3, RESPONSE-KILL ×1
+unexpected=
+follow_ups=RESPONSE-ESCALATE ×5
+detail=

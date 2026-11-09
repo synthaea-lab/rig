@@ -20,6 +20,10 @@
 #   --expectations F  print `technique|min_count|tolerance` per expected detection of the
 #                     sidecar F, run nothing (`python rig.py check` compares it with the
 #                     PowerShell runner's parser)
+#   --judge SNAPSHOT SIDECAR RC
+#                     print the verdict on an alerts snapshot against the sidecar, for a
+#                     scenario script that exited RC, run nothing (`python rig.py check`
+#                     runs it on the fixtures in tests/judge/ and on every sidecar)
 #   --machine NAME    machine name for the report (default: the hostname)
 #   --scenarios DIR   scenarios directory (default: $SYNTHAEA_ROOT/scenarios/scenarios)
 #
@@ -56,6 +60,7 @@ while [ $# -gt 0 ]; do
     --list) MODE=list ;;
     --check) MODE=check ;;
     --expectations) MODE=expectations; SIDECAR=${2:?}; shift ;;
+    --judge) MODE=judge; SNAPSHOT=${2:?}; SIDECAR=${3:?}; SCRIPT_RC=${4:?}; shift 3 ;;
     --machine) MACHINE=${2:?}; shift ;;
     --scenarios) SCEN_DIR=${2:?}; shift ;;
     -h|--help) sed -n '2,/^set -uo/p' "$0" | sed 's/^# \{0,1\}//;/^set -uo/d'; exit 0 ;;
@@ -107,6 +112,47 @@ expect_text() {   # one-line summary of a sidecar's expectations
   printf '%s' "${out:-no alert}"
 }
 
+# --- judging ---------------------------------------------------------------------------
+count_alerts() {   # technique -> count, as `count technique` lines
+  grep -o '"technique":"[^"]*"' "$1" 2>/dev/null | sed 's/^"technique":"//; s/"$//' | sort | uniq -c
+}
+
+# judge SNAPSHOT SIDECAR RC: the verdict on the alerts a scenario raised (SNAPSHOT, absent
+# = none) against what its SIDECAR expects, for a script that exited RC. Reads only those
+# two files and prints five `key=value` lines: status (PASS, UNEXPECTED, FAIL, ERROR),
+# fired (count per expected technique), unexpected, follow_ups (FOLLOW_UPS not expected by
+# the sidecar), detail (why it is not PASS).
+judge() {
+  local snapshot=$1 sidecar=$2 rc=$3
+  local -A raised=() expected=()
+  local count technique min_count tolerance
+  local status fired="" unexpected="" follow_ups="" detail=""
+  while read -r count technique; do [ -n "$technique" ] && raised[$technique]=$count; done < <(count_alerts "$snapshot")
+  while IFS='|' read -r technique min_count tolerance; do
+    expected[$technique]=1
+    count=${raised[$technique]:-0}
+    fired+="${fired:+, }$technique ×$count"
+    if [ "$count" -lt "$min_count" ]; then detail+="${detail:+; }$technique fired $count×, needs ≥$min_count"
+    elif [ "$count" -gt $((min_count + tolerance)) ]; then detail+="${detail:+; }$technique fired $count×, allows ≤$((min_count + tolerance))"
+    fi
+  done < <(expectations "$sidecar")
+  for technique in $(printf '%s\n' "${!raised[@]}" | sort); do
+    [ -n "${expected[$technique]:-}" ] && continue
+    case $FOLLOW_UPS in
+      *" $technique "*) follow_ups+="${follow_ups:+, }$technique ×${raised[$technique]}" ;;
+      *) unexpected+="${unexpected:+, }$technique ×${raised[$technique]}" ;;
+    esac
+  done
+  if [ -n "$detail" ]; then status=FAIL
+  elif [ "$rc" -ne 0 ]; then status=ERROR; detail="script exited $rc"
+  elif [ -n "$unexpected" ]; then status=UNEXPECTED
+  else status=PASS
+  fi
+  [ "$status" = FAIL ] && [ "$rc" -ne 0 ] && detail+="; script exited $rc"
+  printf 'status=%s\nfired=%s\nunexpected=%s\nfollow_ups=%s\ndetail=%s\n' \
+    "$status" "$fired" "$unexpected" "$follow_ups" "$detail"
+}
+
 check() {
   local bad=0 n f
   [ -d "$SCEN_DIR" ] || die "no scenarios directory at $SCEN_DIR"
@@ -130,6 +176,7 @@ check() {
 
 if [ "$MODE" = check ]; then check; exit; fi
 if [ "$MODE" = expectations ]; then expectations "$SIDECAR"; exit; fi
+if [ "$MODE" = judge ]; then judge "$SNAPSHOT" "$SIDECAR" "$SCRIPT_RC"; exit; fi
 if [ "$MODE" = list ]; then
   printf '%-24s %-8s %s\n' SCENARIO SET EXPECTED
   for n in "${ORDER[@]}"; do
@@ -185,10 +232,6 @@ stop_agent() {   # $1 = sudo's pid, $2 = the agent's pid
   for _ in $(seq 1 15); do alive "$1" || break; sleep 1; done
   alive "$1" && sudo kill -KILL "$2" "$1" 2>/dev/null
   wait "$1" 2>/dev/null
-}
-
-count_alerts() {   # technique -> count, as `count technique` lines
-  grep -o '"technique":"[^"]*"' "$1" 2>/dev/null | sed 's/^"technique":"//; s/"$//' | sort | uniq -c
 }
 
 # --- eBPF verifier summary -------------------------------------------------------------
@@ -261,28 +304,18 @@ run_one() {
   stop_agent "$sudo_pid" "$agent_pid"
   R_TIME[$n]=$(( $(date +%s) - start ))
 
-  # Compare.
-  local -A got=() want=()
-  local c t m o fired="" unexp="" follow="" fail="" status
-  while read -r c t; do [ -n "$t" ] && got[$t]=$c; done < <(count_alerts "$W/alerts.snapshot.ndjson")
-  while IFS='|' read -r t m o; do
-    want[$t]=1
-    c=${got[$t]:-0}
-    fired+="${fired:+, }$t ×$c"
-    if [ "$c" -lt "$m" ]; then fail+="${fail:+; }$t fired $c×, needs ≥$m"
-    elif [ "$c" -gt $((m + o)) ]; then fail+="${fail:+; }$t fired $c×, allows ≤$((m + o))"
-    fi
-  done < <(expectations "$SCEN_DIR/$n.yaml")
-  for t in $(printf '%s\n' "${!got[@]}" | sort); do
-    [ -n "${want[$t]:-}" ] && continue
-    case $FOLLOW_UPS in *" $t "*) follow+="${follow:+, }$t ×${got[$t]}" ;; *) unexp+="${unexp:+, }$t ×${got[$t]}" ;; esac
-  done
-  if [ -n "$fail" ]; then status=FAIL
-  elif [ "$rc" -ne 0 ]; then status=ERROR; fail="script exited $rc"
-  elif [ -n "$unexp" ]; then status=UNEXPECTED
-  else status=PASS
-  fi
-  [ "$status" = FAIL ] && [ "$rc" -ne 0 ] && fail+="; script exited $rc"
+  # The verdict stays in the run directory with the rest of the raw material.
+  judge "$W/alerts.snapshot.ndjson" "$SCEN_DIR/$n.yaml" "$rc" > "$W/verdict"
+  local key value status="" fired="" unexp="" follow="" fail=""
+  while IFS='=' read -r key value; do
+    case $key in
+      status) status=$value ;;
+      fired) fired=$value ;;
+      unexpected) unexp=$value ;;
+      follow_ups) follow=$value ;;
+      detail) fail=$value ;;
+    esac
+  done < "$W/verdict"
   # A scenario that checks its own side says why it failed: keep those lines.
   if [ "$rc" -ne 0 ]; then
     local why

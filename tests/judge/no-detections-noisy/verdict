@@ -1,0 +1,8 @@
+# a sidecar without expected_detections makes any alert unexpected
+# sidecar: no-detections.yaml
+# rc: 0
+status=UNEXPECTED
+fired=
+unexpected=T1059 ×1
+follow_ups=
+detail=

@@ -1,0 +1,8 @@
+# a sidecar without expected_detections passes on an empty snapshot
+# sidecar: no-detections.yaml
+# rc: 0
+status=PASS
+fired=
+unexpected=
+follow_ups=
+detail=

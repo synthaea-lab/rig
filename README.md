@@ -125,7 +125,7 @@ incremental.
 | `run <machine> [scenario ...]` | Re-syncs, then runs each scenario (default: every safe, self-contained one) against a fresh standalone agent and copies the report to `reports/`. Exits non-zero when a scenario fails or errors |
 | `report [machine]` | Prints the newest report, of one machine if given |
 | `down <machine> [--destroy]` | Halts the VM, or deletes it |
-| `check` | Checks what can be checked without a VM: scripts parse and are shellcheck-clean, the runner catalogs cover every scenario, both runners read every sidecar alike. See [CONTRIBUTING.md](CONTRIBUTING.md) |
+| `check` | Checks what can be checked without a VM: scripts parse and are shellcheck-clean, the runner catalogs cover every scenario, both runners read every sidecar alike, the runner judges the `tests/judge/` snapshots as stated. See [CONTRIBUTING.md](CONTRIBUTING.md) |
 
 For anything else, use Vagrant directly from `vagrant/`, for example `vagrant ssh debian12`
 (set `RIG_ROOT` there too if the checkouts are not next to the rig).

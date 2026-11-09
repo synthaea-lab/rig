@@ -1,0 +1,8 @@
+# a missing snapshot reads as no alert at all
+# sidecar: defaults-and-quotes.yaml
+# rc: 0
+status=FAIL
+fired=T1059 ×0, T1071/T1041 ×0, T1486 ×0, RESPONSE-KILL ×0
+unexpected=
+follow_ups=
+detail=T1059 fired 0×, needs ≥2; T1071/T1041 fired 0×, needs ≥1; T1486 fired 0×, needs ≥3; RESPONSE-KILL fired 0×, needs ≥1

@@ -18,6 +18,9 @@ the rig can check without a VM. Run it before opening a pull request. It needs t
 - `machines.json` parses;
 - the runner catalogs (`runner/scenarios.conf`, `runner/scenarios-windows.conf`) have a row
   for every scenario, and every sidecar is readable;
+- `run-scenarios.sh` judges the alert snapshots in `tests/judge/` as each case's `verdict`
+  file states, and judges every sidecar at its bounds: a PASS with every expected technique
+  at `min_count`, a FAIL past `min_count + tolerance`;
 - with PowerShell (`pwsh`) installed, `run-scenarios.ps1` reads every sidecar exactly as
   `run-scenarios.sh` does, and `runner/windows/validate-admin.ps1` resolves its scenarios
   sibling.
@@ -27,7 +30,8 @@ change that touches the runners or provisioning is best also run on at least one
 `python3 rig.py run <machine>`.
 
 `.gitattributes` fixes line endings: LF for shell scripts and the catalogs, which run inside
-Linux guests, and CRLF for PowerShell scripts. Keep new files within those patterns.
+Linux guests, LF for the `tests/judge/` fixtures, which the bash runner reads on Windows too,
+and CRLF for PowerShell scripts. Keep new files within those patterns.
 
 ## Adding a scenario
 
@@ -42,7 +46,8 @@ Scenarios live in [synthaea-lab/scenarios](https://github.com/synthaea-lab/scena
    root, required commands or LSMs, oldest kernel, extra agent flags, environment, extra
    YARA files and settle time.
 3. Run `python3 rig.py check`. A sidecar shape the runners must handle gets a fixture in
-   `tests/sidecars/`.
+   `tests/sidecars/`; a verdict rule, a case in `tests/judge/` (an `alerts.ndjson` snapshot
+   and the `verdict` it must get).
 4. Run `python3 rig.py run <machine> <name>` to see it on a VM; the report says PASS or why
    not.
 

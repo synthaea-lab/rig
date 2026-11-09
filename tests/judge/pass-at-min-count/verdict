@@ -1,0 +1,8 @@
+# every expected technique fires exactly min_count times
+# sidecar: defaults-and-quotes.yaml
+# rc: 0
+status=PASS
+fired=T1059 ×2, T1071/T1041 ×1, T1486 ×3, RESPONSE-KILL ×1
+unexpected=
+follow_ups=
+detail=

@@ -1,0 +1,12 @@
+{"ts":"2026-01-01T00:00:00Z","technique":"T1059","message":"fixture alert 1"}
+{"ts":"2026-01-01T00:00:01Z","technique":"T1059","message":"fixture alert 2"}
+{"ts":"2026-01-01T00:00:02Z","technique":"T1071/T1041","message":"fixture alert 1"}
+{"ts":"2026-01-01T00:00:03Z","technique":"T1486","message":"fixture alert 1"}
+{"ts":"2026-01-01T00:00:04Z","technique":"T1486","message":"fixture alert 2"}
+{"ts":"2026-01-01T00:00:05Z","technique":"T1486","message":"fixture alert 3"}
+{"ts":"2026-01-01T00:00:06Z","technique":"RESPONSE-KILL","message":"fixture alert 1"}
+{"ts":"2026-01-01T00:00:07Z","technique":"RESPONSE-ESCALATE","message":"fixture alert 1"}
+{"ts":"2026-01-01T00:00:08Z","technique":"RESPONSE-ESCALATE","message":"fixture alert 2"}
+{"ts":"2026-01-01T00:00:09Z","technique":"RESPONSE-ESCALATE","message":"fixture alert 3"}
+{"ts":"2026-01-01T00:00:10Z","technique":"RESPONSE-ESCALATE","message":"fixture alert 4"}
+{"ts":"2026-01-01T00:00:11Z","technique":"RESPONSE-ESCALATE","message":"fixture alert 5"}
