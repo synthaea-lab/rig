@@ -1,7 +1,7 @@
 # provisioning — in-guest scripts
 
 The scripts in [`provisioning/`](../provisioning/): what runs inside a lab VM besides the
-toolchain itself (which lives with the code it builds, in `agent/toolchain/`). Plain bash/sh/PowerShell with no harness assumptions: Vagrant runs
+toolchain itself (which lives with the code it builds, in `agent/packaging/toolchain/`). Plain bash/sh/PowerShell with no harness assumptions: Vagrant runs
 them (`../vagrant/Vagrantfile`), `rig.py build` runs them over
 `vagrant ssh`/`winrm`, and they work the same over a plain ssh session or cloud-init.
 Every script is idempotent.
@@ -23,6 +23,6 @@ Unlike eBPF, the Windows sensors (`sensor-windows`/ETW via `ferrisetw`,
 `sensor-windows-eventlog`, and `watchdog`'s SCM integration via `windows-service`) are
 pure-Rust FFI bindings against DLLs Windows already ships: no LLVM-version alignment. The
 one thing Rust does not provide on Windows is the MSVC linker and the Windows SDK import
-libraries, which `agent/toolchain/windows-toolchain.ps1` gets from a Visual Studio Build
+libraries, which `agent/packaging/toolchain/windows-toolchain.ps1` gets from a Visual Studio Build
 Tools install (the C++ workload). No nightly toolchain on Windows: that is a Linux/aya-only
 requirement.

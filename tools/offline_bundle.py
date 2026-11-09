@@ -14,7 +14,7 @@ The bundle (`.offline/`, gitignored) holds:
   vendor-config.toml   the source replacement cargo printed, guest path left as @VENDOR@
   ort-cache/dfbin/     pyke's prebuilt ONNX Runtime for the guest's target, copied from the
                        host's ort cache when a previous host build left it there
-  KEY                  a hash of agent/Cargo.lock + agent/ebpf-toolchain.txt: the guest
+  KEY                  a hash of agent/Cargo.lock + agent/packaging/toolchain/ebpf-toolchain.txt: the guest
                        refuses a bundle made for other sources
 
 Vendoring is cached per KEY; a push is skipped when the guest already has that KEY.
@@ -53,7 +53,7 @@ def run(*cmd: str | Path, cwd: Path = ROOT, capture: bool = False) -> str:
 
 def bundle_key() -> str:
     lock = (AGENT / "Cargo.lock").read_bytes()
-    tc = (AGENT / "ebpf-toolchain.txt").read_bytes()
+    tc = (AGENT / "packaging" / "toolchain" / "ebpf-toolchain.txt").read_bytes()
     return hashlib.sha256(lock + b"\0" + tc).hexdigest()[:16]
 
 
@@ -72,7 +72,7 @@ def vendor(dest: Path) -> None:
         raise BundleError(f"unexpected `cargo vendor` output, no directory line:\n{config}")
     (dest / "vendor-config.toml").write_text(template, encoding="utf-8", newline="\n")
 
-    tc = (AGENT / "ebpf-toolchain.txt").read_text(encoding="utf-8").strip()
+    tc = (AGENT / "packaging" / "toolchain" / "ebpf-toolchain.txt").read_text(encoding="utf-8").strip()
     run("rustup", "toolchain", "install", tc, "--profile", "minimal", "--component", "rust-src")
     sysroot = Path(run("rustup", "run", tc, "rustc", "--print", "sysroot", capture=True).strip())
     library = sysroot / "lib" / "rustlib" / "src" / "rust" / "library" / "Cargo.toml"

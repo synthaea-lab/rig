@@ -14,7 +14,7 @@
 #                      auto      (default) prebuilt when this guest can link it, else stop and
 #                                say what to do
 #                      prebuilt  pyke's prebuilt static runtime (the agent's default features)
-#                      static    a source-built static runtime (agent/toolchain/
+#                      static    a source-built static runtime (agent/packaging/toolchain/
 #                                build-onnxruntime-static.sh, ~1 GB of downloads, slow) and
 #                                `--no-default-features --features test-key`
 #   --ort-compat     on Debian 12 / Ubuntu 22.04, first install the newer glibc + libstdc++
@@ -56,7 +56,7 @@ mkdir -p "$STATE"
 [ -f "$SRC/Cargo.toml" ] || die "$SRC/Cargo.toml missing - are the sources synced? (vagrant rsync <machine>)"
 command -v cargo >/dev/null || die "no cargo - the guest is not provisioned (vagrant provision <machine>)"
 command -v bpf-linker >/dev/null || die "bpf-linker not on PATH: the build would silently drop the eBPF probes (vagrant provision <machine>)"
-EBPF_TC=$(tr -d '[:space:]' < "$SRC/ebpf-toolchain.txt")
+EBPF_TC=$(tr -d '[:space:]' < "$SRC/packaging/toolchain/ebpf-toolchain.txt")
 rustup toolchain list | grep -q "^$EBPF_TC" || die "probe toolchain $EBPF_TC missing (vagrant provision <machine>)"
 
 # An earlier hand-rolled offline build may have left a global source replacement behind,
@@ -79,7 +79,7 @@ if [ "$OFFLINE" = 1 ]; then
     echo "unpacked $incoming"
   fi
   [ -f "$OFFLINE_DIR/KEY" ] || die "no offline bundle in the guest: run the build from the host with --offline (it pushes one)"
-  want=$({ cat "$SRC/Cargo.lock"; printf '\0'; cat "$SRC/ebpf-toolchain.txt"; } | sha256sum | cut -c1-16)
+  want=$({ cat "$SRC/Cargo.lock"; printf '\0'; cat "$SRC/packaging/toolchain/ebpf-toolchain.txt"; } | sha256sum | cut -c1-16)
   have=$(cat "$OFFLINE_DIR/KEY")
   [ "$want" = "$have" ] || die "the offline bundle ($have) was made for another Cargo.lock or probe toolchain ($want): re-run from the host with --offline"
   export CARGO_HOME=$OFFLINE_DIR/cargo-home
@@ -124,11 +124,11 @@ case $ORT in
     export ORT_LIB_LOCATION=${ORT_LIB_LOCATION:-$SRC/onnxruntime/build/Linux/Release}
     if ! ls "$ORT_LIB_LOCATION"/libonnxruntime_session.a >/dev/null 2>&1; then
       echo "building onnxruntime from source into $SRC/onnxruntime (rsync leaves it alone)"
-      bash "$SRC/toolchain/build-onnxruntime-static.sh"
+      bash "$SRC/packaging/toolchain/build-onnxruntime-static.sh"
     fi
     ls "$ORT_LIB_LOCATION"/_deps/re2-build/libre2.a >/dev/null 2>&1 \
       || cmake --build "$ORT_LIB_LOCATION" --target re2 -j"${CARGO_BUILD_JOBS:-2}"
-    eval "$(bash "$SRC/toolchain/ort-static-link-flags.sh")"
+    eval "$(bash "$SRC/packaging/toolchain/ort-static-link-flags.sh")"
     FEATURES=(--no-default-features --features test-key)
     echo "static from source: ORT_LIB_LOCATION=$ORT_LIB_LOCATION"
     ;;

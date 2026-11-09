@@ -63,7 +63,7 @@ by side. There are no snapshots: rollback = `vagrant destroy -f` + `up`.
      swappiness 60, `CARGO_BUILD_JOBS` sized to the guest's RAM. Before it, rustc was
      OOM-killed on 2 GB Hyper-V guests.
   2. `prep-*`: the box fix-ups the catalog lists (`fedora-lvm-prep.sh`).
-  3. `toolchain` (`agent/toolchain/<family>-toolchain.sh`, as the `vagrant` user):
+  3. `toolchain` (`agent/packaging/toolchain/<family>-toolchain.sh`, as the `vagrant` user):
      packages, rustup with the pinned stable and probe nightly, bpf-linker, bindgen,
      aya-tool. Idempotent. This is the slow step (an hour on a ~100 KB/s link).
   4. `ort-compat` (`../provisioning/ort-compat.sh --apply`): off unless `RIG_ORT_COMPAT=1`
@@ -135,7 +135,7 @@ from any shell:
    the 4 GB swapfile, but only when `/` has 8 GB free, which this box has only
    after step 2. Once step 2 is done, re-run it:
    `vagrant provision ubuntu2404 --provision-with build-host-setup`.
-4. Then re-run the provisioning (`bash /synthaea/agent/toolchain/linux-toolchain.sh`)
+4. Then re-run the provisioning (`bash /synthaea/agent/packaging/toolchain/linux-toolchain.sh`)
    if the first `up` died on the disk, and check that `bpf-linker --version`
    works. Otherwise `sensor-linux` builds **without** embedded probes and
    `agent status` fails with "built without embedded eBPF probes".
@@ -150,7 +150,7 @@ Disk is fine as shipped. The 1.7 GB of swap is not enough on its own, but the
   tree over SSH:
   `git archive HEAD | ssh … 'sudo mkdir -p /synthaea && sudo chown vagrant: /synthaea && tar -xf - -C /synthaea'`.
 - Provisioning therefore never ran either. Run it by hand:
-  `bash /synthaea/agent/toolchain/linux-toolchain.sh`.
+  `bash /synthaea/agent/packaging/toolchain/linux-toolchain.sh`.
 - No `sysctl` binary (`procps` not installed). Read `/proc/sys/vm/*` directly
   if needed.
 

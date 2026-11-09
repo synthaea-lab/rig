@@ -21,7 +21,7 @@ echo "=== /usr/local/bin symlinks (sudo's PATH) ==="
 ls -la /usr/local/bin/ | grep -E 'bpf|aya|bindgen' || echo "  none"
 echo
 echo "=== eBPF probe toolchain (LLVM major) ==="
-_ebpf_tc=$(tr -d '[:space:]' 2>/dev/null < "${SYNTHAEA_SRC:-/synthaea/agent}/ebpf-toolchain.txt" || echo nightly)
+_ebpf_tc=$(tr -d '[:space:]' 2>/dev/null < "${SYNTHAEA_SRC:-/synthaea/agent}/packaging/toolchain/ebpf-toolchain.txt" || echo nightly)
 echo "  (ebpf-toolchain.txt: $_ebpf_tc)"
 rustup toolchain list | grep -q "^$_ebpf_tc" || echo "  $_ebpf_tc not installed — rustup toolchain install $_ebpf_tc --profile minimal --component rust-src"
 rustup toolchain list | grep -q "^$_ebpf_tc" && { rustup run "$_ebpf_tc" rustc -Vv 2>&1 | grep -i llvm; }
