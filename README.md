@@ -217,6 +217,7 @@ an hour and 1 GB and needs CMake 3.28 or later.
 
 ## Documentation
 
+- [docs/README.md](docs/README.md): the technical documentation, start here
 - [docs/machine-matrix.md](docs/machine-matrix.md): the targets and what each one proves
 - [vagrant/README.md](vagrant/README.md): providers, what the Vagrantfile does, box fix-ups,
   Windows guests
