@@ -60,12 +60,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "../../powershell/RigCommon.ps1")
 
-$principal = New-Object Security.Principal.WindowsPrincipal(
-    [Security.Principal.WindowsIdentity]::GetCurrent())
-if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    throw "Run from an elevated PowerShell (ETW sessions need it)."
-}
+Assert-RigAdministrator -Reason "ETW sessions need it"
 
 if (-not $OutDir) {
     $OutDir = Join-Path (Get-Location) ("sysmon-capture-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
@@ -88,12 +85,6 @@ function Invoke-Tool {
     finally {
         $ErrorActionPreference = $saved
     }
-}
-
-function Say {
-    param([string]$Text = "")
-    Write-Host $Text
-    Add-Content -Path $summary -Value $Text
 }
 
 function Get-EventStats {
@@ -139,7 +130,7 @@ function Get-EventStats {
 function Write-EventStats {
     param($Stats, [double]$Seconds)
     if ($Stats.Ids.Count -eq 0) {
-        Say "    no events"
+        Write-RigSummary $summary "    no events"
         return
     }
     if ($Seconds -le 0 -and $Stats.First -and $Stats.Last) {
@@ -148,44 +139,44 @@ function Write-EventStats {
     foreach ($id in ($Stats.Ids.Keys | Sort-Object { [int]$_ })) {
         $count = $Stats.Ids[$id]
         $rate = if ($Seconds -gt 0) { [Math]::Round($count / $Seconds, 2) } else { 0 }
-        Say ("    id {0,-5} {1,8} events  {2,8} /s  fields: {3}" -f $id, $count, $rate,
+        Write-RigSummary $summary ("    id {0,-5} {1,8} events  {2,8} /s  fields: {3}" -f $id, $count, $rate,
             (($Stats.Fields[$id].Keys | Sort-Object) -join ", "))
     }
 }
 
-Say "# Sysmon / driver-free candidate capture (ADR-0026, #715)"
-Say ("Date (UTC): " + (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss"))
-Say ("Host: " + $env:COMPUTERNAME)
+Write-RigSummary $summary "# Sysmon / driver-free candidate capture (ADR-0026, #715)"
+Write-RigSummary $summary ("Date (UTC): " + (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss"))
+Write-RigSummary $summary ("Host: " + $env:COMPUTERNAME)
 $os = Get-CimInstance Win32_OperatingSystem
-Say ("OS: " + $os.Caption + " build " + $os.BuildNumber + " (" + $os.OSArchitecture + ")")
-Say ""
+Write-RigSummary $summary ("OS: " + $os.Caption + " build " + $os.BuildNumber + " (" + $os.OSArchitecture + ")")
+Write-RigSummary $summary ""
 
 # ---- A. Sysmon channel ---------------------------------------------------------------
 if (-not $SkipSysmon) {
-    Say "## A. Sysmon channel"
+    Write-RigSummary $summary "## A. Sysmon channel"
     $svc = @(Get-Service -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*Sysmon*" -or $_.DisplayName -like "*Sysmon*" })
-    if ($svc.Count -eq 0) { Say "  services: none matching *Sysmon*" }
-    foreach ($s in $svc) { Say ("  service: " + $s.Name + " (" + $s.DisplayName + ") " + $s.Status) }
+    if ($svc.Count -eq 0) { Write-RigSummary $summary "  services: none matching *Sysmon*" }
+    foreach ($s in $svc) { Write-RigSummary $summary ("  service: " + $s.Name + " (" + $s.DisplayName + ") " + $s.Status) }
 
     $logs = @(Get-WinEvent -ListLog * -ErrorAction SilentlyContinue | Where-Object { $_.LogName -like "*Sysmon*" })
     if ($logs.Count -eq 0) {
-        Say "  event logs: none matching *Sysmon* (nothing to capture; use -SkipSysmon next time)"
+        Write-RigSummary $summary "  event logs: none matching *Sysmon* (nothing to capture; use -SkipSysmon next time)"
     }
     foreach ($log in $logs) {
-        Say ("  log: " + $log.LogName + "  enabled=" + $log.IsEnabled + "  records=" + $log.RecordCount +
+        Write-RigSummary $summary ("  log: " + $log.LogName + "  enabled=" + $log.IsEnabled + "  records=" + $log.RecordCount +
             "  size=" + $log.FileSize + "  max=" + $log.MaximumSizeInBytes)
         if (-not $log.IsEnabled -or -not $log.RecordCount) { continue }
         $safe = ($log.LogName -replace "[^A-Za-z0-9]", "_")
         $xml = Join-Path $OutDir ("sysmon-" + $safe + ".xml")
         # wevtutil, not Get-WinEvent: it writes the raw <Event> XML, the form a fixture needs.
         & wevtutil.exe qe $log.LogName /c:$SysmonSample /rd:true /f:xml | Out-File -FilePath $xml -Encoding utf8
-        if ($LASTEXITCODE -ne 0) { Say ("  wevtutil failed for " + $log.LogName + " (exit " + $LASTEXITCODE + ")"); continue }
+        if ($LASTEXITCODE -ne 0) { Write-RigSummary $summary ("  wevtutil failed for " + $log.LogName + " (exit " + $LASTEXITCODE + ")"); continue }
         $stats = Get-EventStats -XmlPath $xml
         $span = if ($stats.First -and $stats.Last) { [Math]::Round(($stats.Last - $stats.First).TotalSeconds, 1) } else { 0 }
-        Say ("  sample: " + (($stats.Ids.Values | Measure-Object -Sum).Sum) + " events over " + $span + " s, raw XML in " + $xml)
+        Write-RigSummary $summary ("  sample: " + (($stats.Ids.Values | Measure-Object -Sum).Sum) + " events over " + $span + " s, raw XML in " + $xml)
         Write-EventStats -Stats $stats -Seconds 0
     }
-    Say ""
+    Write-RigSummary $summary ""
 }
 
 # ---- B. Driver-free candidates ---------------------------------------------------------
@@ -232,15 +223,15 @@ function Invoke-EtwWindow {
     try {
         $create = Invoke-Tool -FilePath "logman.exe" -Arguments @("create", "trace", $name, "-ets", "-p", $Provider, $Keyword, "0xFF", "-o", $etl, "-bs", "64", "-nb", "16", "64", "-max", "512")
         if ($create.Exit -ne 0) {
-            Say ("    could not start a session for " + $Provider + " (logman exit " + $create.Exit + "): not enabled")
-            foreach ($line in $create.Output) { Say ("      " + $line) }
+            Write-RigSummary $summary ("    could not start a session for " + $Provider + " (logman exit " + $create.Exit + "): not enabled")
+            foreach ($line in $create.Output) { Write-RigSummary $summary ("      " + $line) }
             return
         }
         $started = $true
         $t0 = Get-Date
         if ($Busy) {
             $loops = Start-BusyLoad -Seconds $Seconds
-            Say ("    busy load: " + $loops + " iterations")
+            Write-RigSummary $summary ("    busy load: " + $loops + " iterations")
         }
         else {
             Start-Sleep -Seconds $Seconds
@@ -250,36 +241,36 @@ function Invoke-EtwWindow {
     finally {
         if ($started) { [void](Invoke-Tool -FilePath "logman.exe" -Arguments @("stop", $name, "-ets")) }
     }
-    if (-not (Test-Path $etl)) { Say "    no ETL written"; return }
+    if (-not (Test-Path $etl)) { Write-RigSummary $summary "    no ETL written"; return }
     $report = Invoke-Tool -FilePath "tracerpt.exe" -Arguments @($etl, "-of", "XML", "-o", $xml, "-y", "-summary", (Join-Path $OutDir ($Label + "-summary.txt")), "-report", (Join-Path $OutDir ($Label + "-report.xml")))
-    if ($report.Exit -ne 0 -or -not (Test-Path $xml)) { Say ("    tracerpt failed (exit " + $report.Exit + "): no XML"); return }
+    if ($report.Exit -ne 0 -or -not (Test-Path $xml)) { Write-RigSummary $summary ("    tracerpt failed (exit " + $report.Exit + "): no XML"); return }
     $stats = Get-EventStats -XmlPath $xml
     Write-EventStats -Stats $stats -Seconds $elapsed
     $lost = @(Select-String -Path $xml -Pattern 'Name="(EventsLost|BuffersLost)">\s*(\d+)' -AllMatches |
         ForEach-Object { $_.Matches } | ForEach-Object { $_.Groups[1].Value + "=" + $_.Groups[2].Value })
-    if ($lost.Count -gt 0) { Say ("    session losses: " + ($lost -join " ")) }
+    if ($lost.Count -gt 0) { Write-RigSummary $summary ("    session losses: " + ($lost -join " ")) }
 }
 
 if (-not $SkipEtw) {
-    Say "## B. Driver-free candidates (non-PPL session, file mode)"
+    Write-RigSummary $summary "## B. Driver-free candidates (non-PPL session, file mode)"
     $candidates = @(
         @{ Provider = "Microsoft-Windows-Kernel-Process"; Keyword = $ThreadKeyword; Tag = "kproc"; Why = "thread start (Sysmon 8)" },
         @{ Provider = "Microsoft-Windows-Kernel-Audit-API-Calls"; Keyword = "0xFFFFFFFFFFFFFFFF"; Tag = "kaudit"; Why = "OpenProcess (Sysmon 10)" }
     )
     foreach ($c in $candidates) {
-        Say ("  " + $c.Provider + "  [" + $c.Why + "]  keyword " + $c.Keyword)
-        Say ("    registered: " + (Test-ProviderRegistered -Name $c.Provider))
-        Say ("  -- idle " + $IdleSeconds + " s")
+        Write-RigSummary $summary ("  " + $c.Provider + "  [" + $c.Why + "]  keyword " + $c.Keyword)
+        Write-RigSummary $summary ("    registered: " + (Test-ProviderRegistered -Name $c.Provider))
+        Write-RigSummary $summary ("  -- idle " + $IdleSeconds + " s")
         Invoke-EtwWindow -Provider $c.Provider -Keyword $c.Keyword -Label ($c.Tag + "-idle") -Seconds $IdleSeconds -Busy $false
-        Say ("  -- busy " + $BusySeconds + " s")
+        Write-RigSummary $summary ("  -- busy " + $BusySeconds + " s")
         Invoke-EtwWindow -Provider $c.Provider -Keyword $c.Keyword -Label ($c.Tag + "-busy") -Seconds $BusySeconds -Busy $true
-        Say ""
+        Write-RigSummary $summary ""
     }
-    Say "Leftover syncap-* sessions (should be none):"
+    Write-RigSummary $summary "Leftover syncap-* sessions (should be none):"
     $listing = Invoke-Tool -FilePath "logman.exe" -Arguments @("query", "-ets")
     $found = @($listing.Output | Where-Object { $_ -match "^syncap-" })
-    if ($found.Count -eq 0) { Say "  none (or logman cannot list; check Get-EtwTraceSession)" } else { $found | ForEach-Object { Say ("  " + $_) } }
-    Say ""
+    if ($found.Count -eq 0) { Write-RigSummary $summary "  none (or logman cannot list; check Get-EtwTraceSession)" } else { $found | ForEach-Object { Write-RigSummary $summary ("  " + $_) } }
+    Write-RigSummary $summary ""
 }
 
-Say ("Done. Read " + $summary + "; keep the .etl and .xml files for the ADR-0026 capture report.")
+Write-RigSummary $summary ("Done. Read " + $summary + "; keep the .etl and .xml files for the ADR-0026 capture report.")

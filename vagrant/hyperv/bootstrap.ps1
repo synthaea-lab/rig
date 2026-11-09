@@ -9,12 +9,9 @@
     4. Checks the "Default Switch" (NAT) Vagrant uses for guest networking
 #>
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "../../powershell/RigCommon.ps1")
 
-if (-not ([Security.Principal.WindowsPrincipal] `
-      [Security.Principal.WindowsIdentity]::GetCurrent()
-    ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-  throw "Run this from an elevated PowerShell (Run as Administrator)."
-}
+Assert-RigAdministrator -Reason "Hyper-V feature and group setup need it"
 
 Write-Host "== 1. Hyper-V feature ==" -ForegroundColor Cyan
 $hv = Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All

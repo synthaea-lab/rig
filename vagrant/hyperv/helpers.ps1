@@ -20,9 +20,9 @@
 
 $ErrorActionPreference = "Stop"
 
-if (-not ([Security.Principal.WindowsPrincipal] `
-      [Security.Principal.WindowsIdentity]::GetCurrent()
-    ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+# RigCommon is loaded in a child scope: this file is dot-sourced into the user's session,
+# which should end up with the lab commands below and nothing else.
+if (-not (& { . (Join-Path $PSScriptRoot "../../powershell/RigCommon.ps1"); Test-RigAdministrator })) {
   Write-Warning "Not elevated -- vagrant up/ssh/halt/destroy will fail. Re-open PowerShell as Administrator."
 }
 
