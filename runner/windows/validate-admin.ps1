@@ -294,6 +294,94 @@ function Invoke-KernelProcessMaskTest([string]$Mask) {
     Invoke-MaskTest "kernel_process_keyword_mask" "kernel_process_keyword_mask_respects_the_requested_event_ids" "SYNTHAEA_KERNEL_PROCESS_MASK" "KERNEL_PROCESS_MASK_SESSION" $KernelProcessMaskPrefix $Mask
 }
 
+# -- Phases ------------------------------------------------------------------
+# One function per phase. Each records its verdicts with Add-Result and leaves
+# every agent it starts in $LabAgents, so the cleanup can stop what a failing
+# phase left running.
+
+function New-SweepOrphans {
+    # The orphans phase A expects the sweep to stop: the session of an agent
+    # killed with -Force, plus two synthetic wtrace- sessions. Returns their names.
+    $seed = Start-PhaseAgent "A0-make-orphan"
+    if (-not (Wait-AgentEvents $seed)) { throw "the agent produced no events in 30s; see $($seed.Dir)" }
+    Stop-LabAgent $seed
+    $realOrphans = Get-EtsSessions $AgentPrefix
+    New-RealtimeSession "${AgentPrefix}lab408-a"
+    New-RealtimeSession "${AgentPrefix}lab408-b"
+    $orphans = Get-EtsSessions $AgentPrefix
+    Add-Result "orphans before start" "INFO" "$($orphans.Count) ($($realOrphans.Count) left by a killed agent): $($orphans -join ', ')"
+    $orphans
+}
+
+function Invoke-SweepPhase {
+    # A. #408: every orphan is stopped.
+    Write-Section "A. #408 orphan cleanup"
+    $orphans = @(New-SweepOrphans)
+
+    $agent = Start-PhaseAgent "A1-sweep"
+    $ready = Wait-AgentEvents $agent
+    Invoke-Triggers $agent "synthaea408-sweep"
+    Start-Sleep -Seconds 35
+    $running = Get-EtsSessions $AgentPrefix
+    $survivors = @($orphans | Where-Object { $running -contains $_ })
+    Stop-LabAgent $agent
+    $log = Get-AgentLog $agent
+    $stopped = ([regex]::Matches($log, "orphaned ETW session stopped")).Count
+    $logmanAlerts = @(Get-Alerts $agent | Where-Object { $_.technique -eq "T1059" -and $_.message -match "logman" })
+
+    if ($survivors.Count -eq 0 -and $stopped -ge $orphans.Count) {
+        Add-Result "#408 every orphan stopped" "PASS" "$stopped stopped, $($running.Count) wtrace- session(s) left (the new agent's own)"
+    } else {
+        Add-Result "#408 every orphan stopped" "FAIL" "survivors: $($survivors -join ', '); 'stopped' log lines: $stopped"
+    }
+    if ($ready -and -not (Test-SensorFailed $log) -and (Test-Marker $agent "synthaea408-sweep" "exec")) {
+        Add-Result "#408 events flow after the sweep" "PASS" (Format-Counts (Get-EventTypeCounts $agent))
+    } else {
+        Add-Result "#408 events flow after the sweep" "FAIL" "ready=$ready sensor-failed=$(Test-SensorFailed $log) types: $(Format-Counts (Get-EventTypeCounts $agent))"
+    }
+    if ($logmanAlerts.Count -eq 0) {
+        Add-Result "#463 no SELF-SPAWN on the sweep's logman.exe" "PASS" "no T1059 alert mentioning logman"
+    } else {
+        Add-Result "#463 no SELF-SPAWN on the sweep's logman.exe" "FAIL" $logmanAlerts[0].message
+    }
+    Stop-EtsSessions $AgentPrefix
+}
+
+function Invoke-RootCauseProbe([int]$Count) {
+    # One step of phase B: $Count probe sessions enabling the agent's providers
+    # under a name the sweep does not touch, then an agent, and what it still sees.
+    $refused = @()
+    for ($i = 1; $i -le $Count; $i++) {
+        # A refusal is itself the evidence this phase looks for.
+        try { New-RealtimeSession "$ProbePrefix$i" } catch { $refused += "probe $i ($($_.Exception.Message))" }
+    }
+    if ($refused.Count -gt 0) { Add-Result "probes=$Count refused" "INFO" ($refused -join "; ") }
+    $agent = Start-PhaseAgent "B-probes-$Count"
+    $ready = Wait-AgentEvents $agent
+    $marker = "synthaea408-probe$Count"
+    Invoke-Triggers $agent $marker
+    Start-Sleep -Seconds 5
+    Invoke-Triggers $agent "$marker-late"
+    $elapsed = ((Get-Date) - $agent.Started).TotalSeconds
+    if ($elapsed -lt 40) { Start-Sleep -Seconds ([int](40 - $elapsed)) }
+    Stop-LabAgent $agent
+    $log = Get-AgentLog $agent
+    Stop-EtsSessions $ProbePrefix
+    Stop-EtsSessions $AgentPrefix
+    $sawExec = (Test-Marker $agent $marker "exec") -or (Test-Marker $agent "$marker-late" "exec")
+    $sawFile = (Test-Marker $agent $marker "file_open") -or (Test-Marker $agent "$marker-late" "file_open")
+    Add-Result "probes=$Count" "INFO" ("ready={0} exec-seen={1} file-seen={2} sensor-failed={3} types: {4}" -f `
+        $ready, $sawExec, $sawFile, (Test-SensorFailed $log), (Format-Counts (Get-EventTypeCounts $agent)))
+}
+
+function Invoke-RootCausePhase([int[]]$ProbeCounts) {
+    # B. #408: can concurrent sessions blind a new one?
+    Write-Section "B. #408 root cause (per-provider session limit)"
+    $enablers = Get-ProviderEnablers
+    Add-Result "host sessions already enabling each provider" "INFO" (($enablers.GetEnumerator() | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join " ")
+    foreach ($n in $ProbeCounts) { Invoke-RootCauseProbe $n }
+}
+
 # -- Setup -------------------------------------------------------------------
 
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
@@ -327,77 +415,8 @@ try {
     Stop-EtsSessions $AgentPrefix
     Stop-EtsSessions $ProbePrefix
 
-    # -- A. #408: every orphan is stopped -----------------------------------
-    if (-not $SkipOrphans) {
-        Write-Section "A. #408 orphan cleanup"
-        $seed = Start-PhaseAgent "A0-make-orphan"
-        if (-not (Wait-AgentEvents $seed)) { throw "the agent produced no events in 30s; see $($seed.Dir)" }
-        Stop-LabAgent $seed
-        $realOrphans = Get-EtsSessions $AgentPrefix
-        New-RealtimeSession "${AgentPrefix}lab408-a"
-        New-RealtimeSession "${AgentPrefix}lab408-b"
-        $orphans = Get-EtsSessions $AgentPrefix
-        Add-Result "orphans before start" "INFO" "$($orphans.Count) ($($realOrphans.Count) left by a killed agent): $($orphans -join ', ')"
-
-        $agent = Start-PhaseAgent "A1-sweep"
-        $ready = Wait-AgentEvents $agent
-        Invoke-Triggers $agent "synthaea408-sweep"
-        Start-Sleep -Seconds 35
-        $running = Get-EtsSessions $AgentPrefix
-        $survivors = @($orphans | Where-Object { $running -contains $_ })
-        Stop-LabAgent $agent
-        $log = Get-AgentLog $agent
-        $stopped = ([regex]::Matches($log, "orphaned ETW session stopped")).Count
-        $logmanAlerts = @(Get-Alerts $agent | Where-Object { $_.technique -eq "T1059" -and $_.message -match "logman" })
-
-        if ($survivors.Count -eq 0 -and $stopped -ge $orphans.Count) {
-            Add-Result "#408 every orphan stopped" "PASS" "$stopped stopped, $($running.Count) wtrace- session(s) left (the new agent's own)"
-        } else {
-            Add-Result "#408 every orphan stopped" "FAIL" "survivors: $($survivors -join ', '); 'stopped' log lines: $stopped"
-        }
-        if ($ready -and -not (Test-SensorFailed $log) -and (Test-Marker $agent "synthaea408-sweep" "exec")) {
-            Add-Result "#408 events flow after the sweep" "PASS" (Format-Counts (Get-EventTypeCounts $agent))
-        } else {
-            Add-Result "#408 events flow after the sweep" "FAIL" "ready=$ready sensor-failed=$(Test-SensorFailed $log) types: $(Format-Counts (Get-EventTypeCounts $agent))"
-        }
-        if ($logmanAlerts.Count -eq 0) {
-            Add-Result "#463 no SELF-SPAWN on the sweep's logman.exe" "PASS" "no T1059 alert mentioning logman"
-        } else {
-            Add-Result "#463 no SELF-SPAWN on the sweep's logman.exe" "FAIL" $logmanAlerts[0].message
-        }
-        Stop-EtsSessions $AgentPrefix
-    }
-
-    # -- B. #408: can concurrent sessions blind a new one? ------------------
-    if (-not $SkipRootCause) {
-        Write-Section "B. #408 root cause (per-provider session limit)"
-        $enablers = Get-ProviderEnablers
-        Add-Result "host sessions already enabling each provider" "INFO" (($enablers.GetEnumerator() | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join " ")
-        foreach ($n in $ProbeCounts) {
-            $refused = @()
-            for ($i = 1; $i -le $n; $i++) {
-                # A refusal is itself the evidence this phase looks for.
-                try { New-RealtimeSession "$ProbePrefix$i" } catch { $refused += "probe $i ($($_.Exception.Message))" }
-            }
-            if ($refused.Count -gt 0) { Add-Result "probes=$n refused" "INFO" ($refused -join "; ") }
-            $agent = Start-PhaseAgent "B-probes-$n"
-            $ready = Wait-AgentEvents $agent
-            $marker = "synthaea408-probe$n"
-            Invoke-Triggers $agent $marker
-            Start-Sleep -Seconds 5
-            Invoke-Triggers $agent "$marker-late"
-            $elapsed = ((Get-Date) - $agent.Started).TotalSeconds
-            if ($elapsed -lt 40) { Start-Sleep -Seconds ([int](40 - $elapsed)) }
-            Stop-LabAgent $agent
-            $log = Get-AgentLog $agent
-            Stop-EtsSessions $ProbePrefix
-            Stop-EtsSessions $AgentPrefix
-            $sawExec = (Test-Marker $agent $marker "exec") -or (Test-Marker $agent "$marker-late" "exec")
-            $sawFile = (Test-Marker $agent $marker "file_open") -or (Test-Marker $agent "$marker-late" "file_open")
-            Add-Result "probes=$n" "INFO" ("ready={0} exec-seen={1} file-seen={2} sensor-failed={3} types: {4}" -f `
-                $ready, $sawExec, $sawFile, (Test-SensorFailed $log), (Format-Counts (Get-EventTypeCounts $agent)))
-        }
-    }
+    if (-not $SkipOrphans) { Invoke-SweepPhase }
+    if (-not $SkipRootCause) { Invoke-RootCausePhase -ProbeCounts $ProbeCounts }
 
     # -- C. #489: one file, one path --------------------------------------
     if (-not $SkipLongPath) {
