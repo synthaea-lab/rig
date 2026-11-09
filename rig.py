@@ -83,6 +83,133 @@ def load_catalog(path: Path) -> dict[str, Machine]:
     return {name: Machine.from_entry(name, entry) for name, entry in entries.items()}
 
 
+GUESTS = ("linux", "windows")
+PROVIDERS = ("libvirt", "hyperv", "qemu", "virtualbox")
+PROVISION_SUFFIX = {"linux": ".sh", "windows": ".ps1"}
+MACHINE_FIELDS = {"guest", "matrix", "primary", "boxes", "provision", "prep", "qemu_ssh_port",
+                  "memory_mb", "notes"}
+PROVISIONING = RIG / "provisioning"
+
+
+def catalog_problems(catalog: object) -> list[str]:
+    """What is wrong with a parsed machines.json, one line per problem, naming the machine.
+    Empty when the catalog holds what the Vagrantfile and rig.py rely on (its `_doc` states it)."""
+    if not isinstance(catalog, dict):
+        return ["the catalog is not a JSON object"]
+    problems = defaults_problems(catalog.get("defaults"))
+    entries = catalog.get("machines")
+    if not isinstance(entries, dict) or not entries:
+        return [*problems, "`machines` is not a non-empty object"]
+    ports: dict[int, str] = {}
+    for name, entry in entries.items():
+        if not isinstance(entry, dict):
+            problems.append(f"{name}: not a JSON object")
+            continue
+        problems += [f"{name}: {problem}" for problem in machine_problems(entry)]
+        port = entry.get("qemu_ssh_port")
+        if isinstance(port, int) and port in ports:
+            problems.append(f"{name}: qemu_ssh_port {port} is already {ports[port]}'s")
+        elif isinstance(port, int):
+            ports[port] = name
+    return problems
+
+
+def defaults_problems(defaults: object) -> list[str]:
+    """`defaults` gives each guest the memory_mb and provision a machine may leave out."""
+    if not isinstance(defaults, dict):
+        return ["`defaults` is not an object with an entry per guest (linux, windows)"]
+    problems = []
+    for guest in GUESTS:
+        given = defaults.get(guest)
+        if not isinstance(given, dict):
+            problems.append(f"defaults: no `{guest}` entry")
+            continue
+        problems += [f"defaults.{guest}: {problem}" for problem in memory_problems(given.get("memory_mb"))]
+        problems += [f"defaults.{guest}: {problem}" for problem in provision_problems(given.get("provision"), guest)]
+    return problems
+
+
+def machine_problems(entry: dict) -> list[str]:
+    """What is wrong with one `machines` entry, without its name."""
+    problems = [f"unknown field `{field}` (known: {', '.join(sorted(MACHINE_FIELDS))})"
+                for field in entry if field not in MACHINE_FIELDS]
+    guest = entry.get("guest")
+    if guest not in GUESTS:
+        problems.append(f"guest is {json.dumps(guest)}, not one of {', '.join(GUESTS)}")
+    if not isinstance(entry.get("matrix"), str) or not entry["matrix"].strip():
+        problems.append("matrix is not a docs/machine-matrix.md row name")
+    problems += boxes_problems(entry.get("boxes"))
+    if "provision" in entry and guest in GUESTS:
+        problems += provision_problems(entry["provision"], guest)
+    if "prep" in entry:
+        problems += prep_problems(entry["prep"], guest)
+    if "memory_mb" in entry:
+        problems += memory_problems(entry["memory_mb"])
+    if "qemu_ssh_port" in entry:
+        problems += port_problems(entry["qemu_ssh_port"])
+    return problems
+
+
+def boxes_problems(boxes: object) -> list[str]:
+    """`boxes` maps at least one known Vagrant provider to a box name."""
+    if not isinstance(boxes, dict) or not boxes:
+        return ["boxes is not a non-empty object of provider: box"]
+    problems = [f"unknown provider `{prov}` in boxes (known: {', '.join(PROVIDERS)})"
+                for prov in boxes if prov not in PROVIDERS]
+    problems += [f"boxes.{prov} is not a box name" for prov, box in boxes.items()
+                 if not isinstance(box, str) or not box.strip()]
+    return problems
+
+
+def provision_problems(provision: object, guest: str) -> list[str]:
+    """`provision` is a relative / path into a sibling checkout, to a script the guest runs."""
+    shape = (f"provision is {json.dumps(provision)}, not a relative / path into a sibling checkout "
+             f"({', '.join(SIBLINGS)}) ending in {PROVISION_SUFFIX[guest]}")
+    if not isinstance(provision, str):
+        return [shape]
+    parts = provision.split("/")
+    if ("\\" in provision or parts[0] not in SIBLINGS or len(parts) < 2
+            or any(part in ("", ".", "..") for part in parts) or not provision.endswith(PROVISION_SUFFIX[guest])):
+        return [shape]
+    return []
+
+
+def prep_problems(prep: object, guest: object) -> list[str]:
+    """`prep` lists box fix-ups by file name in provisioning/; only Linux guests run them."""
+    if guest == "windows":
+        return ["prep is set, but Windows guests do not run prep scripts"]
+    if not isinstance(prep, list) or not all(isinstance(script, str) for script in prep):
+        return ["prep is not a list of script names"]
+    return [f"prep script {json.dumps(script)} is not a .sh file in provisioning/" for script in prep
+            if "/" in script or "\\" in script or not script.endswith(".sh")
+            or not (PROVISIONING / script).is_file()]
+
+
+def memory_problems(memory: object) -> list[str]:
+    if isinstance(memory, bool) or not isinstance(memory, int) or memory <= 0:
+        return [f"memory_mb is {json.dumps(memory)}, not a positive whole number"]
+    return []
+
+
+def port_problems(port: object) -> list[str]:
+    if isinstance(port, bool) or not isinstance(port, int) or not 1024 <= port <= 65535:
+        return [f"qemu_ssh_port is {json.dumps(port)}, not a port number from 1024 to 65535"]
+    return []
+
+
+def check_catalog(path: Path) -> dict[str, Machine]:
+    """The machines of the catalog at `path`, once it holds what the Vagrantfile and rig.py
+    rely on; otherwise a RigError listing every problem, so a typo fails here, not at `vagrant up`."""
+    try:
+        catalog = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as err:
+        raise RigError(f"{path.name} does not parse: {err}") from err
+    problems = catalog_problems(catalog)
+    if problems:
+        raise RigError(f"{path.name} is invalid:\n" + "\n".join(f"  {problem}" for problem in problems))
+    return load_catalog(path)
+
+
 @functools.cache
 def machines() -> dict[str, Machine]:
     """The rig's machine catalog, read from machines.json once per process."""
@@ -396,8 +523,8 @@ def cmd_check() -> None:
     scripts = sorted([*RIG.glob("*.sh"), *RIG.glob("*/*.sh")])
     for script in scripts:
         subprocess.run([bash, "-n", str(script.relative_to(RIG))], cwd=RIG, check=True)
-    load_catalog(MACHINES_JSON)
-    print(f"rig: {len(scripts)} scripts parse, machines.json parses", flush=True)
+    catalog = check_catalog(MACHINES_JSON)
+    print(f"rig: {len(scripts)} scripts parse, machines.json is valid ({len(catalog)} machines)", flush=True)
     check_shellcheck_clean(scripts)
     scenarios = ROOT / "scenarios" / "scenarios"
     if scenarios.is_dir():

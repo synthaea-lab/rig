@@ -18,7 +18,10 @@ the rig can check without a VM. Run it before opening a pull request. It needs t
   pins the command lines `rig.py` sends to a guest, `tests/test_vagrant.py` how it runs
   vagrant, against a fake `vagrant` on `PATH`);
 - every shell script parses, and is shellcheck-clean when `shellcheck` is installed;
-- `machines.json` parses;
+- `machines.json` holds what the Vagrantfile and `rig.py` rely on: a `linux` or `windows`
+  guest, a non-empty `boxes` of known providers, `prep` scripts that exist in `provisioning/`,
+  a `provision` path into a sibling checkout, unique `qemu_ssh_port`s and no unknown field
+  (`tests/test_catalog.py` pins each message, which names the machine);
 - the runner catalogs (`runner/scenarios.conf`, `runner/scenarios-windows.conf`) have a row
   for every scenario, and every sidecar is readable;
 - `run-scenarios.sh` judges the alert snapshots in `tests/judge/` as each case's `verdict`
@@ -65,7 +68,8 @@ Scenarios live in [synthaea-lab/scenarios](https://github.com/synthaea-lab/scena
 1. Add the target to [docs/machine-matrix.md](docs/machine-matrix.md), with what it proves.
 2. Add the entry to `machines.json`: a box per provider that publishes one, `provision` if
    the guest is not apt- or dnf-based, and a `prep` script in `provisioning/` if the box
-   needs a fix-up. A prep script detects on its own whether it applies.
+   needs a fix-up. A prep script detects on its own whether it applies. `python3 rig.py check`
+   validates the entry.
 
 Nothing else lists machines: `rig.py` and the Vagrantfile both read the catalog.
 
