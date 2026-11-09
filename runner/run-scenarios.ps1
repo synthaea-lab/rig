@@ -16,6 +16,9 @@
   PowerShell 5.1 compatible, strict mode (Latest) throughout, LabAgent.ps1 included. Not yet
   run end to end on a lab VM.
 #>
+# Named parameters only: the scenario names that follow -Machine and -Source (as rig.py
+# passes them) go to $Names, never to $Root or $State by position.
+[CmdletBinding(PositionalBinding = $false)]
 param(
   [string]$Machine = $env:COMPUTERNAME,
   [string]$Source = "unknown (set by rig.py)",
