@@ -499,6 +499,7 @@ def run_checks(bash: str) -> None:
                        cwd=RIG, check=True)
     else:
         print(f"skipped: no {scenarios} for the runner catalog check")
+    check_runner_reads_catalog_as_stated(bash)
     check_runners_read_sidecars_alike(bash, scenarios)
     check_runner_judges_as_stated(bash)
     check_runner_judges_every_sidecar(bash, scenarios)
@@ -531,6 +532,21 @@ def check_shellcheck_clean(scripts: list[Path]) -> None:
     print(f"rig: {len(scripts)} scripts are shellcheck-clean", flush=True)
 
 
+CATALOG_FIXTURE = RIG / "tests" / "catalog" / "scenarios.conf"
+
+
+def check_runner_reads_catalog_as_stated(bash: str) -> None:
+    """run-scenarios.sh reads each row of the catalog fixture in tests/catalog as its
+    `# reads:` lines state (the columns of runner/scenarios.conf, trimmed, `-` as empty)."""
+    command = [bash, "runner/run-scenarios.sh", "--catalog-rows", CATALOG_FIXTURE.as_posix()]
+    read = subprocess.run(command, cwd=RIG, check=True, stdout=subprocess.PIPE, encoding="utf-8").stdout.splitlines()
+    stated = stated_expectations(CATALOG_FIXTURE)
+    if read != stated:
+        raise CheckFailed("run-scenarios.sh reads tests/catalog/scenarios.conf otherwise than stated:\n"
+                          + "\n".join(f"  reads {line}" for line in read))
+    print(f"runner: run-scenarios.sh reads the {len(stated)} catalog fixture rows as stated", flush=True)
+
+
 SIDECAR_FIXTURES = RIG / "tests" / "sidecars"
 
 
@@ -560,7 +576,7 @@ def check_runners_read_sidecars_alike(bash: str, scenarios: Path) -> None:
 
 
 def stated_expectations(fixture: Path) -> list[str]:
-    """The `technique|min_count|tolerance` lines a fixture states with `# reads: ...`."""
+    """The lines a fixture states with `# reads: ...` (expectations, or catalog rows)."""
     prefix = "# reads: "
     return [line[len(prefix):].strip() for line in fixture.read_text(encoding="utf-8").splitlines()
             if line.startswith(prefix)]

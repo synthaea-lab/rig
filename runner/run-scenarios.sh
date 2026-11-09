@@ -20,6 +20,9 @@
 #   --expectations F  print `technique|min_count|tolerance` per expected detection of the
 #                     sidecar F, run nothing (`python rig.py check` compares it with the
 #                     PowerShell runner's parser)
+#   --catalog-rows F  print each row of the runner catalog F as the runner reads it, one
+#                     `name|set|root|needs|min_kernel|agent_flags|env|yara|settle|note`
+#                     line, run nothing (`python rig.py check` runs it on tests/catalog/)
 #   --judge SNAPSHOT SIDECAR RC
 #                     print the verdict on an alerts snapshot against the sidecar, for a
 #                     scenario script that exited RC, run nothing (`python rig.py check`
@@ -64,6 +67,7 @@ while [ $# -gt 0 ]; do
     --list) MODE=list ;;
     --check) MODE=check ;;
     --expectations) need_values "$1" SIDECAR "${@:2:1}"; MODE=expectations; SIDECAR=$2; shift ;;
+    --catalog-rows) need_values "$1" CATALOG "${@:2:1}"; MODE=catalog-rows; CATALOG=$2; shift ;;
     --judge) need_values "$1" "SNAPSHOT SIDECAR RC" "${@:2:3}"; MODE=judge; SNAPSHOT=$2; SIDECAR=$3; SCRIPT_RC=$4; shift 3 ;;
     --machine) need_values "$1" NAME "${@:2:1}"; MACHINE=$2; shift ;;
     --scenarios) need_values "$1" DIR "${@:2:1}"; SCEN_DIR=$2; shift ;;
@@ -177,6 +181,13 @@ check() {
   return "$bad"
 }
 
+if [ "$MODE" = catalog-rows ]; then
+  for n in "${ORDER[@]}"; do
+    printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$n" "${C_SET[$n]}" "${C_ROOT[$n]}" "${C_NEEDS[$n]}" "${C_KERNEL[$n]}" \
+      "${C_FLAGS[$n]}" "${C_ENV[$n]}" "${C_YARA[$n]}" "${C_SETTLE[$n]}" "${C_NOTE[$n]}"
+  done
+  exit 0
+fi
 if [ "$MODE" = check ]; then check; exit; fi
 if [ "$MODE" = expectations ]; then expectations "$SIDECAR"; exit; fi
 if [ "$MODE" = judge ]; then judge "$SNAPSHOT" "$SIDECAR" "$SCRIPT_RC"; exit; fi
