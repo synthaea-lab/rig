@@ -12,8 +12,8 @@
     "memory_mb overrides the default; notes = what to know before `up`."
   ],
   "defaults": {
-    "linux":   { "memory_mb": 6144, "provision": "agent/toolchain/linux-toolchain.sh" },
-    "windows": { "memory_mb": 8192, "provision": "agent/toolchain/windows-toolchain.ps1" }
+    "linux":   { "memory_mb": 6144, "provision": "agent/packaging/toolchain/linux-toolchain.sh" },
+    "windows": { "memory_mb": 8192, "provision": "agent/packaging/toolchain/windows-toolchain.ps1" }
   },
   "machines": {
     "ubuntu2404": {
@@ -85,7 +85,7 @@
     },
     "arch": {
       "guest": "linux", "matrix": "arch (rolling)",
-      "provision": "agent/toolchain/arch-toolchain.sh",
+      "provision": "agent/packaging/toolchain/arch-toolchain.sh",
       "boxes": {
         "libvirt": "generic/arch",
         "hyperv": "generic/arch",
@@ -95,7 +95,7 @@
     },
     "alpine319": {
       "guest": "linux", "matrix": "alpine-3.24",
-      "provision": "agent/toolchain/alpine-toolchain.sh",
+      "provision": "agent/packaging/toolchain/alpine-toolchain.sh",
       "memory_mb": 4096,
       "boxes": {
         "libvirt": "generic/alpine319",

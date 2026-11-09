@@ -96,13 +96,13 @@ Restart-Service hns
 # and drop any host VPN (WireGuard/OpenVPN) for the duration of the lab
 ```
 
-Classic eBPF build failures (see `agent/toolchain/linux-toolchain.sh`):
+Classic eBPF build failures (see `agent/packaging/toolchain/linux-toolchain.sh`):
 
 | Symptom | Fix |
 | --- | --- |
 | `built without embedded eBPF probes` — bpf-linker missing (download failed at provisioning, script continued with `[warn]`) | `vagrant provision MACHINE` (retries 3x now, and busts the stale build) |
-| `rust-src` missing from the probe toolchain | `vssh MACHINE 'rustup component add rust-src --toolchain "$(cat /synthaea/ebpf-toolchain.txt)"'` |
-| `Unknown attribute kind … Producer LLVM NN … Reader LLVM MM` | bump `BPF_LINKER_VERSION` in the provisioner, or pin an older nightly in `ebpf-toolchain.txt` |
+| `rust-src` missing from the probe toolchain | `vssh MACHINE 'rustup component add rust-src --toolchain "$(cat /synthaea/agent/packaging/toolchain/ebpf-toolchain.txt)"'` |
+| `Unknown attribute kind … Producer LLVM NN … Reader LLVM MM` | bump `BPF_LINKER_VERSION` in the provisioner, or pin an older nightly in `agent/packaging/toolchain/ebpf-toolchain.txt` |
 
 ---
 

@@ -6,7 +6,7 @@
 
     powershell -ExecutionPolicy Bypass -File C:\synthaea\rig\provisioning\agent-build.ps1 [-Source "..."]
 
-  Prerequisite: the `toolchain` provisioner (agent\toolchain\windows-toolchain.ps1) ran.
+  Prerequisite: the `toolchain` provisioner (agent\packaging\toolchain\windows-toolchain.ps1) ran.
   ASCII only, Windows PowerShell 5.1 compatible.
 #>
 param(

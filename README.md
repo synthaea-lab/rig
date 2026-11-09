@@ -43,7 +43,7 @@ VMs get the same checkouts uploaded to `C:\synthaea`. `RIG_ROOT` (or `SYNTHAEA_R
 the rig at another root directory, for checkouts that live elsewhere.
 
 The toolchain scripts the VMs are provisioned with live in the agent repository
-(`agent/toolchain/`), next to the code they build.
+(`agent/packaging/toolchain/`), next to the code they build.
 
 ## Repository layout
 
@@ -222,7 +222,7 @@ host, `tools/offline_bundle.py`:
 In the guest, `agent-build.sh --offline` unpacks it to `~/synthaea-offline/`, points a
 **private** `CARGO_HOME` at it (source replacement + `net.offline = true`; nested cargo
 runs such as the eBPF build inherit it, and online builds are not affected), and builds.
-The bundle is keyed on `agent/Cargo.lock` + `agent/ebpf-toolchain.txt`: after a lockfile
+The bundle is keyed on `agent/Cargo.lock` + `agent/packaging/toolchain/ebpf-toolchain.txt`: after a lockfile
 change, `--offline` makes and pushes a new one. Switching a guest between online and offline builds
 recompiles the dependencies once (their sources moved), ~10 minutes at 4 vCPUs.
 
@@ -255,7 +255,7 @@ packages (`libc6`, `libstdc++6`, the GCC runtime libraries, `dpkg`, `base-files`
 `/etc/os-release` then says trixie; the report flags it). Fine for a disposable VM; say so
 when quoting a result. The agent itself does not offer an ML-less build: `--ort static`
 (`--no-default-features --features test-key` with a source-built runtime,
-`agent/toolchain/build-onnxruntime-static.sh`) keeps the distro intact but clones and
+`agent/packaging/toolchain/build-onnxruntime-static.sh`) keeps the distro intact but clones and
 builds onnxruntime (~1 GB, an hour; needs CMake ≥ 3.28). Tracked as an agent issue.
 
 ## Troubleshooting
