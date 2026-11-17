@@ -10,11 +10,13 @@
     compares, line for line, the results it recorded and the calls it made, in order.
     Phase A (Invoke-SweepPhase) runs once with every orphan swept and once with a
     survivor, a sensor failure and a logman alert; phase B (Invoke-RootCausePhase) runs
-    with a refused probe. This works under pwsh on any OS. `python rig.py check` runs this.
+    with a refused probe. Everything runs under strict mode (Latest), as the script does.
+    This works under pwsh on any OS. `python rig.py check` runs this.
 #>
 param(
     [string]$Script = (Join-Path (Split-Path -Parent $PSScriptRoot) "runner/windows/validate-admin.ps1")
 )
+Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $tokens = $null

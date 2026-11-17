@@ -6,8 +6,9 @@
 .DESCRIPTION
     Runs the script's own top-level statements, from the start through the
     first dot-sourced file, with $Root set to -Root. Those statements resolve
-    the sibling paths and dot-source common.ps1; nothing Windows-only runs
-    before them, so this works under pwsh on any OS. Fails if $CommonScript
+    the sibling paths and dot-source common.ps1, under the script's strict
+    mode; nothing Windows-only runs before them, so this works under pwsh on
+    any OS. Fails if $CommonScript
     does not exist or if the helpers the phases call are not defined after
     loading it. `python rig.py check` runs this.
 #>
@@ -36,6 +37,10 @@ for ($i = 0; $i -lt $statements.Count; $i++) {
 if ($lastIndex -lt 0) { throw "$Script dot-sources nothing; expected it to load common.ps1" }
 $prologue = [scriptblock]::Create(($statements[0..$lastIndex] | ForEach-Object { $_.Extent.Text }) -join "`n")
 
+# The script's other parameters, at their defaults: the prologue runs under its strict mode,
+# where an unset variable throws.
+$AgentExe = ""
+$OutDir = ""
 $CommonScript = $null
 try {
     . $prologue
@@ -46,7 +51,7 @@ try {
 if (-not $CommonScript -or -not (Test-Path -LiteralPath $CommonScript)) {
     throw "runner/windows/validate-admin.ps1 resolved common.ps1 to '$CommonScript', which does not exist under $Root"
 }
-$missing = @("Invoke-Native", "Invoke-NativeCleanup", "Get-FarFutureDate") |
+$missing = @("Invoke-Native", "Invoke-NativeCleanup", "Get-FarFutureDate", "Get-OptionalProperty") |
     Where-Object { -not (Get-Command $_ -CommandType Function -ErrorAction SilentlyContinue) }
 if ($missing) { throw "common.ps1 loaded from $CommonScript does not define: $($missing -join ', ')" }
 Write-Output "runner/windows/validate-admin.ps1: loads $CommonScript"
