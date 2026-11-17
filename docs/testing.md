@@ -28,10 +28,12 @@ this order ([`run_checks`](../rig.py)), and the first failure stops the run with
 | Sidecar parsing | `run-scenarios.sh --expectations` reads each fixture in [`tests/sidecars/`](../tests/sidecars/) as stated; with `pwsh`, `run-scenarios.ps1`'s parser reads every fixture and every real sidecar exactly as the bash one does |
 | Verdicts | `run-scenarios.sh --judge` gives each case in [`tests/judge/`](../tests/judge/) its stated verdict |
 | Sidecar bounds | Every real sidecar PASSes with each expected technique at exactly `min_count`, and FAILs at `min_count + tolerance + 1` |
-| Admin validation (`pwsh`) | [`validate-admin.ps1`](../runner/windows/validate-admin.ps1) finds the scenarios' `common.ps1`, and its phase functions record the stated results and calls against fakes of the ETW host and the agent |
+| Strict mode (`pwsh`) | Every PowerShell script outside `tests/` that runs as a file sets `Set-StrictMode -Version Latest` first; the dot-sourced ones ([`helpers.ps1`](../vagrant/hyperv/helpers.ps1), [`RigCommon.ps1`](../powershell/RigCommon.ps1), [`LabAgent.ps1`](../runner/LabAgent.ps1)) set neither strict mode nor `$ErrorActionPreference` in the session that loads them |
+| Admin validation (`pwsh`) | [`validate-admin.ps1`](../runner/windows/validate-admin.ps1) finds the scenarios' `common.ps1`, reads alerts and events that leave fields out, and its phase functions record the stated results and calls against fakes of the ETW host and the agent, all under strict mode |
 | Lab agent (`pwsh`) | [`LabAgent.ps1`](../runner/LabAgent.ps1) writes the configurations of [`tests/lab-agent/`](../tests/lab-agent/) byte for byte, and starts, waits for and stops a fake agent by PID |
 | RigCommon (`pwsh`) | The scripts that dot-source [`RigCommon.ps1`](../powershell/RigCommon.ps1) parse and find it, keep no copy of their own, and no RigCommon name collides with the scenarios' `common.ps1` |
-| Windows runner (`pwsh`) | `run-scenarios.ps1` sets strict mode, its functions count, format and run a scenario as stated, and scenario names bind to `-Names` only, never to `-Root` or `-State` by position |
+| Windows runner (`pwsh`) | `run-scenarios.ps1`'s functions count, format and run a scenario as stated, and scenario names bind to `-Names` only, never to `-Root` or `-State` by position |
+| Windows scripts (`pwsh`) | Under strict mode, against faked programs: `agent-build.ps1` returns cargo's exit code with its output logged, `agent-install.ps1` goes on past a watchdog with no service, `capture-sysmon-etw.ps1` runs a tool and reads an event dump, and `observe-rdp.ps1` reads event fields an event may leave out |
 | Hyper-V helpers (`pwsh`) | [`helpers.ps1`](../vagrant/hyperv/helpers.ps1) names its commands Verb-Noun, keeps each short name as an alias, and runs the stated `rig.py` or `vagrant` command line |
 
 The sidecar-parsing parity check exists because the two runners cannot share code: Linux

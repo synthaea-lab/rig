@@ -3,9 +3,9 @@
     Checks the parts of runner/run-scenarios.ps1 that run without a lab guest.
 
 .DESCRIPTION
-    The script must set strict mode (Latest) before anything else runs. Its functions,
-    defined without running the top level and called under strict mode and "Stop" as the
-    runner calls them, must count techniques, format report cells, and run a scenario whose
+    Its functions, defined without running the top level and called under strict mode and
+    "Stop" as the runner calls them (tests/strict-mode.ps1 checks that it sets the mode
+    first), must count techniques, format report cells, and run a scenario whose
     errors are data: the exit code comes back, its error records land in the log, and the
     caller's preference stays "Stop". This works under pwsh on any OS.
     `python rig.py check` runs this.
@@ -25,10 +25,6 @@ $failures = @()
 function Assert-True([bool]$Ok, [string]$What) {
     if (-not $Ok) { $script:failures += $What }
 }
-
-# -- Strict mode, first ------------------------------------------------------------------
-$first = $ast.EndBlock.Statements | Select-Object -First 1
-Assert-True ($first.Extent.Text -ceq "Set-StrictMode -Version Latest") "first statement is not Set-StrictMode -Version Latest: $($first.Extent.Text)"
 
 # -- Functions ---------------------------------------------------------------------------
 $functions = $ast.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] }
@@ -75,4 +71,4 @@ try {
 }
 
 if ($failures) { throw "runner/run-scenarios.ps1:`n  " + ($failures -join "`n  ") }
-Write-Output "runner/run-scenarios.ps1: strict, counts, formats and runs a scenario whose errors are data"
+Write-Output "runner/run-scenarios.ps1: counts, formats and runs a scenario whose errors are data"
