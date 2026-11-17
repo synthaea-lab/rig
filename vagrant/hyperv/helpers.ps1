@@ -24,13 +24,19 @@
 
   Every command takes an optional machine name; it defaults to $LabMachine
   ("ubuntu2204"). Set $LabMachine = "debian12" to switch the default.
-#>
 
-$ErrorActionPreference = "Stop"
+  Dot-sourcing changes the session's variables and modes, so this file sets no
+  $ErrorActionPreference and no strict mode at its top level: what fails while it loads says
+  so with -ErrorAction Stop, and a command that needs "Stop" sets it in its own scope.
+#>
 
 # RigCommon is loaded in a child scope: this file is dot-sourced into the user's session,
 # which should end up with the lab commands below and nothing else.
-if (-not (& { . (Join-Path $PSScriptRoot "../../powershell/RigCommon.ps1"); Test-RigAdministrator })) {
+if (-not (& {
+        $ErrorActionPreference = "Stop"
+        . (Join-Path $PSScriptRoot "../../powershell/RigCommon.ps1")
+        Test-RigAdministrator
+      })) {
   Write-Warning "Not elevated -- vagrant up/ssh/halt/destroy will fail. Re-open PowerShell as Administrator."
 }
 
@@ -39,13 +45,13 @@ if (-not (& { . (Join-Path $PSScriptRoot "../../powershell/RigCommon.ps1"); Test
 # still prints the menu -- just answer 1. Setting it does no harm.
 $env:VAGRANT_HYPERV_SWITCH = "Default Switch"
 # The one Vagrantfile lives in rig\vagrant, whichever directory this session is in.
-$env:VAGRANT_CWD = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$env:VAGRANT_CWD = (Resolve-Path (Join-Path $PSScriptRoot "..") -ErrorAction Stop).Path
 $env:VAGRANT_DEFAULT_PROVIDER = "hyperv"
 
 # Default target machine for every command below.
 $LabMachine = "ubuntu2204"
 # The rig's CLI, which the commands call for every step it covers.
-$LabRigCli = (Resolve-Path (Join-Path $PSScriptRoot "../../rig.py")).Path
+$LabRigCli = (Resolve-Path (Join-Path $PSScriptRoot "../../rig.py") -ErrorAction Stop).Path
 
 function Resolve-LabMachineName([string]$Name) {
   <# The machine a command targets: $Name, or $LabMachine when none is given. #>
@@ -72,6 +78,8 @@ function Initialize-LabSession {
       3. (re)assert the switch env var
       4. warn when too little RAM is free for the VM to start
   #>
+  # A failed memory query must stop here, not report 0 MB free.
+  $ErrorActionPreference = "Stop"
   Write-Host "wsl --shutdown" -ForegroundColor Cyan
   wsl --shutdown
   $rsync = (Get-Command rsync -ErrorAction SilentlyContinue).Source
