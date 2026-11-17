@@ -7,14 +7,27 @@
     powershell -ExecutionPolicy Bypass -File C:\synthaea\rig\provisioning\agent-build.ps1 [-Source "..."]
 
   Prerequisite: the `toolchain` provisioner (agent\packaging\toolchain\windows-toolchain.ps1) ran.
-  ASCII only, Windows PowerShell 5.1 compatible.
+  ASCII only, Windows PowerShell 5.1 compatible, strict mode (Latest).
 #>
 param(
   [string]$Source = "unknown (set by rig.py)",
   [string]$Root = "C:\synthaea",
   [string]$State = "C:\synthaea-rig"
 )
+Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+function Invoke-CargoBuild {
+  <# Runs `cargo build --release -p agent` in the current directory, every output line to the
+     host and to the file $Log, and returns its exit code. cargo reports progress on stderr,
+     which Windows PowerShell 5.1 turns into error records, terminating under "Stop" (under
+     WinRM too). So the preference is "Continue" here, in this function's scope only; the
+     caller's stays "Stop" and judges the exit code. #>
+  param([Parameter(Mandatory)][string]$Log)
+  $ErrorActionPreference = "Continue"
+  & cargo build --release -p agent 2>&1 | ForEach-Object { "$_" } | Tee-Object -FilePath $Log | Write-Host
+  $LASTEXITCODE
+}
 
 $agentDir = Join-Path $Root "agent"
 if (-not (Test-Path (Join-Path $agentDir "Cargo.toml"))) {
@@ -29,11 +42,7 @@ New-Item -ItemType Directory -Force -Path $State | Out-Null
 $sw = [Diagnostics.Stopwatch]::StartNew()
 Push-Location $agentDir
 try {
-  # cargo reports progress on stderr; under WinRM that is not an error.
-  $ErrorActionPreference = "Continue"
-  & cargo build --release -p agent 2>&1 | ForEach-Object { "$_" } | Tee-Object -FilePath (Join-Path $State "build.log")
-  $rc = $LASTEXITCODE
-  $ErrorActionPreference = "Stop"
+  $rc = Invoke-CargoBuild -Log (Join-Path $State "build.log")
   if ($rc -ne 0) { throw "cargo build failed ($rc), see $State\build.log" }
   $rustc = (& rustc --version)
 } finally {
