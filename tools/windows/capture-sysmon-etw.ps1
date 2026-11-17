@@ -31,7 +31,7 @@
     Everything lands under -OutDir (summary.txt is the file to read; the .etl
     files are kept for a second look with tracerpt or WPA).
 
-    ASCII only, stock Windows PowerShell 5.1 (#433).
+    ASCII only, stock Windows PowerShell 5.1 (#433), strict mode (Latest).
 
 .PARAMETER OutDir
     Where to write. Default: .\sysmon-capture-<timestamp>.
@@ -59,6 +59,7 @@ param(
     [switch]$SkipEtw
 )
 
+Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "../../powershell/RigCommon.ps1")
 
@@ -71,20 +72,14 @@ New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $summary = Join-Path $OutDir "summary.txt"
 
 function Invoke-Tool {
-    # Runs a native tool and returns its exit code and output. Windows PowerShell 5.1
-    # turns every stderr line of `2>&1` into a terminating error under
-    # $ErrorActionPreference = "Stop", so the tool runs under "Continue" and the
-    # caller tests the exit code.
+    # Runs a native tool and returns its exit code and its output lines (none for a silent
+    # tool). Windows PowerShell 5.1 turns every stderr line of `2>&1` into a terminating
+    # error under $ErrorActionPreference = "Stop", so the tool runs under "Continue", in
+    # this function's scope only, and the caller tests the exit code.
     param([string]$FilePath, [string[]]$Arguments = @())
-    $saved = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
-    try {
-        $output = & $FilePath @Arguments 2>&1 | ForEach-Object { "$_" }
-        return @{ Exit = $LASTEXITCODE; Output = @($output) }
-    }
-    finally {
-        $ErrorActionPreference = $saved
-    }
+    $output = @(& $FilePath @Arguments 2>&1 | ForEach-Object { "$_" })
+    return @{ Exit = $LASTEXITCODE; Output = $output }
 }
 
 function Get-EventStats {
