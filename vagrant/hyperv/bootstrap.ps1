@@ -7,7 +7,10 @@
        elevation, not a group change -- log out/in once for it to take effect)
     3. Installs Vagrant if missing
     4. Checks the "Default Switch" (NAT) Vagrant uses for guest networking
+
+  Strict mode (Latest).
 #>
+Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "../../powershell/RigCommon.ps1")
 
