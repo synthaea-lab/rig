@@ -66,12 +66,25 @@ param(
     [switch]$InstallService
 )
 
+Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 function Write-Section([string]$Title) {
     Write-Host ""
     Write-Host "== $Title ==" -ForegroundColor Cyan
+}
+
+function Uninstall-WatchdogService {
+    <# Best effort: removes the service a previous install registered with the watchdog at
+       $Watchdog, and is fine when there is none (plain binary-only staging from a run
+       without -InstallService). watchdog.exe writes to stderr on every command, which
+       Windows PowerShell 5.1 turns into an error record, terminating under "Stop" even when
+       discarded with 2>$null. So the preference is "Continue" here, in this function's
+       scope only. #>
+    param([Parameter(Mandatory)][string]$Watchdog)
+    $ErrorActionPreference = 'Continue'
+    & $Watchdog uninstall 2>$null | Out-Null
 }
 
 if ([bool]$SourceDir -eq [bool]$AgentZip) {
@@ -111,9 +124,7 @@ Write-Section "Stopping any existing install"
 
 $watchdogDst = Join-Path $InstallDir "watchdog.exe"
 if (Test-Path $watchdogDst) {
-    # Best-effort: fine if no service was ever installed (plain binary-only
-    # staging from a previous run without -InstallService).
-    & $watchdogDst uninstall 2>$null | Out-Null
+    Uninstall-WatchdogService -Watchdog $watchdogDst
     Write-Host "[ok] removed any previously installed service"
 }
 Get-Process -Name "agent", "watchdog" -ErrorAction SilentlyContinue | Stop-Process -Force
