@@ -86,7 +86,9 @@ function Get-RegistryValue([string]$Path, [string]$Name) {
 
 function Get-RdpSettings {
     $ts = "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server"
-    $tcp = Join-Path $ts "WinStations\RDP-Tcp"
+    # A string, not Join-Path: Join-Path resolves the HKLM: drive, which the function test's
+    # pwsh on Linux does not have.
+    $tcp = "$ts\WinStations\RDP-Tcp"
     return @{
         Deny = Get-RegistryValue $ts fDenyTSConnections
         Nla = Get-RegistryValue $tcp UserAuthentication

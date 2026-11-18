@@ -129,10 +129,11 @@ try {
     # must give $null, not throw.
     function Get-ItemProperty { $null }
     $thrown = $null
+    $rdp = $null
     try { $rdp = Get-RdpSettings } catch { $thrown = $_ }
     Remove-Item -LiteralPath function:Get-ItemProperty
     Assert-True ($null -eq $thrown) "Get-RdpSettings with the registry values missing threw: $thrown"
-    Assert-True ($null -eq $thrown -and $null -eq $rdp.Deny -and $null -eq $rdp.Nla -and $null -eq $rdp.Layer -and $null -eq $rdp.Port) "Get-RdpSettings with the registry values missing: $($rdp | Out-String)"
+    Assert-True ($null -ne $rdp -and $null -eq $rdp.Deny -and $null -eq $rdp.Nla -and $null -eq $rdp.Layer -and $null -eq $rdp.Port) "Get-RdpSettings with the registry values missing: $($rdp | Out-String)"
 } finally {
     Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
 }
