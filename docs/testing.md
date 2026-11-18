@@ -20,6 +20,9 @@ this order ([`run_checks`](../rig.py)), and the first failure stops the run with
 | Check | What it proves |
 | --- | --- |
 | Unit tests | `python -m unittest discover` over `tests/test_*.py` passes (below) |
+| Python lint | With `ruff`, `rig.py`, `tools/` and `tests/` are clean under [`ruff.toml`](../ruff.toml), the rule set of the workspace's `scripts/` |
+| PowerShell ASCII | Every `*.ps1` is ASCII: Windows PowerShell 5.1 reads a file without a BOM in the ANSI code page, so a typographic quote or dash changes what the script says |
+| PowerShell syntax | With `pwsh`, every `*.ps1`, `tests/` included, parses ([`tests/powershell-scripts-parse.ps1`](../tests/powershell-scripts-parse.ps1)) |
 | Shell syntax | `bash -n` on every `*.sh` at the top level, one directory down, and in `runner/lib/` |
 | Catalog | `machines.json` is valid ([machines.md](machines.md#validation)) |
 | shellcheck | Every one of those scripts is clean at shellcheck's default severity. An intended finding carries a `# shellcheck disable=...` with the reason |

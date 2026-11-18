@@ -54,8 +54,12 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: Add-Content -Path $env:GITHUB_PATH -Value "$env:ProgramFiles\Git\bin"
+      # rig.py check skips the Python lint where there is no ruff: pin the workspace's version.
+      - name: Install ruff
+        run: python -m pip install --disable-pip-version-check ruff==0.17.0
       - name: Tool versions
         run: |
+          ruff --version
           python --version
           bash --version | head -n 1
           pwsh --version

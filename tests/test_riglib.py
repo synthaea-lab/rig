@@ -71,7 +71,7 @@ class RunCli(unittest.TestCase):
 class SharedPaths(unittest.TestCase):
     def test_both_tools_see_one_rig_and_root(self) -> None:
         self.assertEqual(riglib.RIG, Path(rig.__file__).resolve().parent)
-        self.assertEqual((rig.RIG, rig.ROOT, rig.VAGRANT_DIR), (riglib.RIG, riglib.ROOT, riglib.VAGRANT_DIR))
+        self.assertEqual((rig.RIG, rig.ROOT), (riglib.RIG, riglib.ROOT))
         self.assertEqual((offline_bundle.RIG, offline_bundle.ROOT), (riglib.RIG, riglib.ROOT))
         self.assertIs(rig.RigError, riglib.RigError)
 
