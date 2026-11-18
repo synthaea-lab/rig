@@ -18,7 +18,7 @@
         dump;
       - tools/windows/observe-rdp.ps1: Get-DataField and Get-UserDataText read an event's
         fields, and "" for what the event leaves out (an empty Data, a missing name, no
-        EventData, no UserData).
+        EventData, no UserData); Get-RdpSettings gives $null for a missing registry value.
 
     A fake program behaves as Windows PowerShell 5.1 does with a native tool writing to
     stderr: it writes an error record. This works under pwsh on any OS.
@@ -125,6 +125,14 @@ try {
     Assert-True ((Get-DataField $noEventData "LogonType") -ceq "") "Get-DataField with no EventData: $(Get-DataField $noEventData 'LogonType')"
     Assert-True ((Get-UserDataText $authenticated) -ceq "Param1=alice Param2=LAB Param3=10.0.0.5") "Get-UserDataText: $(Get-UserDataText $authenticated)"
     Assert-True ((Get-UserDataText $failedLogon) -ceq "") "Get-UserDataText with no UserData: $(Get-UserDataText $failedLogon)"
+    # Every RDP registry value missing: the summary prints "unknown" for them, so reading them
+    # must give $null, not throw.
+    function Get-ItemProperty { $null }
+    $thrown = $null
+    try { $rdp = Get-RdpSettings } catch { $thrown = $_ }
+    Remove-Item -LiteralPath function:Get-ItemProperty
+    Assert-True ($null -eq $thrown) "Get-RdpSettings with the registry values missing threw: $thrown"
+    Assert-True ($null -eq $thrown -and $null -eq $rdp.Deny -and $null -eq $rdp.Nla -and $null -eq $rdp.Layer -and $null -eq $rdp.Port) "Get-RdpSettings with the registry values missing: $($rdp | Out-String)"
 } finally {
     Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
 }

@@ -82,9 +82,9 @@ function Initialize-LabSession {
   $ErrorActionPreference = "Stop"
   Write-Host "wsl --shutdown" -ForegroundColor Cyan
   wsl --shutdown
-  $rsync = (Get-Command rsync -ErrorAction SilentlyContinue).Source
+  $rsync = Get-Command rsync -ErrorAction SilentlyContinue
   if ($rsync) {
-    Write-Host "rsync: $rsync" -ForegroundColor Green
+    Write-Host "rsync: $($rsync.Source)" -ForegroundColor Green
   } else {
     Write-Warning "no rsync on PATH -- `vagrant up` will fail to sync the repo. Install cwRsync or Git-for-Windows rsync."
   }

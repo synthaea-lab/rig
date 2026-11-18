@@ -77,14 +77,22 @@ function Get-UserDataText {
     @($record.ChildNodes | ForEach-Object { $_.Name + "=" + $_.InnerText }) -join " "
 }
 
+function Get-RegistryValue([string]$Path, [string]$Name) {
+    # $null when the key or the value is missing, for the summary to print "unknown": under
+    # strict mode, reading a property of the $null Get-ItemProperty then returns would throw.
+    $item = Get-ItemProperty -Path $Path -Name $Name -ErrorAction SilentlyContinue
+    if ($item) { $item.$Name } else { $null }
+}
+
 function Get-RdpSettings {
     $ts = "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server"
     $tcp = Join-Path $ts "WinStations\RDP-Tcp"
-    $deny = (Get-ItemProperty -Path $ts -Name fDenyTSConnections -ErrorAction SilentlyContinue).fDenyTSConnections
-    $nla = (Get-ItemProperty -Path $tcp -Name UserAuthentication -ErrorAction SilentlyContinue).UserAuthentication
-    $layer = (Get-ItemProperty -Path $tcp -Name SecurityLayer -ErrorAction SilentlyContinue).SecurityLayer
-    $port = (Get-ItemProperty -Path $tcp -Name PortNumber -ErrorAction SilentlyContinue).PortNumber
-    return @{ Deny = $deny; Nla = $nla; Layer = $layer; Port = $port }
+    return @{
+        Deny = Get-RegistryValue $ts fDenyTSConnections
+        Nla = Get-RegistryValue $tcp UserAuthentication
+        Layer = Get-RegistryValue $tcp SecurityLayer
+        Port = Get-RegistryValue $tcp PortNumber
+    }
 }
 
 Write-RigSummary $summary "# RDP event observation (#285 / #700)"
