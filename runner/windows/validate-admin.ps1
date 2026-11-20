@@ -49,6 +49,9 @@
     logs, events.jsonl, alerts.ndjson, the raw D trace) stays in -OutDir.
 
 .NOTES
+    Strict mode (Latest) throughout, the dot-sourced common.ps1, LabAgent.ps1 and
+    RigCommon.ps1 included.
+
     Run from an elevated Windows PowerShell 5.1+ prompt, with no other agent
     running. The script expects the sibling checkouts under -Root (default:
     the directory holding rig\, three levels above this script; C:\synthaea in the lab VMs):
@@ -79,6 +82,7 @@ param(
     [switch]$SkipKernelFileMask,
     [switch]$SkipKernelProcessMask
 )
+Set-StrictMode -Version Latest
 
 # Defaults resolved here, not in param(): Windows PowerShell 5.1 leaves
 # $PSScriptRoot empty while it evaluates param() defaults.
@@ -237,8 +241,29 @@ function Format-Counts($Counts) {
 }
 
 function Get-Alerts($Agent) {
+    # The agent's alerts as { technique, message }, $null for a field an alert leaves out:
+    # under strict mode, reading a missing JSON field throws.
     if (-not (Test-Path $Agent.Alerts)) { return @() }
-    @(Get-Content -LiteralPath $Agent.Alerts | Where-Object { $_ } | ForEach-Object { $_ | ConvertFrom-Json })
+    @(Get-Content -LiteralPath $Agent.Alerts | Where-Object { $_ } | ForEach-Object {
+        $alert = $_ | ConvertFrom-Json
+        [pscustomobject]@{
+            technique = Get-OptionalProperty $alert "technique"
+            message   = Get-OptionalProperty $alert "message"
+        }
+    })
+}
+
+function Get-EventsNaming($Agent, [string[]]$Patterns) {
+    # The agent's events whose line contains one of $Patterns, as { type, path, comm }
+    # (comm from meta), $null for a field an event leaves out.
+    @(Select-String -LiteralPath $Agent.Events -SimpleMatch -Pattern $Patterns | ForEach-Object {
+        $record = $_.Line | ConvertFrom-Json
+        [pscustomobject]@{
+            type = Get-OptionalProperty $record "type"
+            path = Get-OptionalProperty $record "path"
+            comm = Get-OptionalProperty (Get-OptionalProperty $record "meta") "comm"
+        }
+    })
 }
 
 function Invoke-Triggers($Agent, [string]$Marker) {
@@ -259,7 +284,8 @@ function Test-SensorFailed([string]$Log) {
 }
 
 function Invoke-MaskTest([string]$TestFile, [string]$TestName, [string]$EnvName, [string]$SessionMarker, [string]$SessionPrefix, [string]$Mask) {
-    $previousPreference = $ErrorActionPreference
+    # cargo test reports on stderr: "Continue" in this function's scope only, as in
+    # Get-EtsSessionNames; the caller's preference stays "Stop".
     $ErrorActionPreference = "Continue"
     try {
         Set-Item -Path "Env:$EnvName" -Value $Mask
@@ -268,8 +294,6 @@ function Invoke-MaskTest([string]$TestFile, [string]$TestName, [string]$EnvName,
     } catch {
         $output = @($_.Exception.Message)
         $exitCode = 1
-    } finally {
-        $ErrorActionPreference = $previousPreference
     }
     foreach ($line in @($output)) {
         $lineText = "$line"
@@ -306,10 +330,10 @@ function New-SweepOrphans {
     $seed = Start-PhaseAgent "A0-make-orphan"
     if (-not (Wait-AgentEvents $seed)) { throw "the agent produced no events in 30s; see $($seed.Dir)" }
     Stop-LabAgent $seed
-    $realOrphans = Get-EtsSessions $AgentPrefix
+    $realOrphans = @(Get-EtsSessions $AgentPrefix)
     New-RealtimeSession "${AgentPrefix}lab408-a"
     New-RealtimeSession "${AgentPrefix}lab408-b"
-    $orphans = Get-EtsSessions $AgentPrefix
+    $orphans = @(Get-EtsSessions $AgentPrefix)
     Add-Result "orphans before start" "INFO" "$($orphans.Count) ($($realOrphans.Count) left by a killed agent): $($orphans -join ', ')"
     $orphans
 }
@@ -323,7 +347,7 @@ function Invoke-SweepPhase {
     $ready = Wait-AgentEvents $agent
     Invoke-Triggers $agent "synthaea408-sweep"
     Start-Sleep -Seconds 35
-    $running = Get-EtsSessions $AgentPrefix
+    $running = @(Get-EtsSessions $AgentPrefix)
     $survivors = @($orphans | Where-Object { $running -contains $_ })
     Stop-LabAgent $agent
     $log = Get-AgentLog $agent
@@ -408,7 +432,7 @@ Write-Host "output: $OutDir"
 
 $LabDirs = @()
 try {
-    $preexisting = Get-EtsSessions $AgentPrefix
+    $preexisting = @(Get-EtsSessions $AgentPrefix)
     Add-Result "pre-existing wtrace- sessions" "INFO" "$($preexisting.Count) before the run: $($preexisting -join ', ')"
     Stop-EtsSessions $AgentPrefix
     Stop-EtsSessions $ProbePrefix
@@ -447,8 +471,7 @@ try {
 
             $labLeaf = Split-Path $labDir -Leaf
             $shortLeaf = Split-Path $shortDir -Leaf
-            $events = @(Select-String -LiteralPath $agent.Events -SimpleMatch -Pattern @($labLeaf, $shortLeaf) |
-                ForEach-Object { $_.Line | ConvertFrom-Json } |
+            $events = @(Get-EventsNaming $agent @($labLeaf, $shortLeaf) |
                 Where-Object { $_.path -and ($_.path.IndexOf($labLeaf, [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
                     $_.path.IndexOf($shortLeaf, [StringComparison]::OrdinalIgnoreCase) -ge 0) })
             $marks = @($events | Where-Object { $_.type -eq "file_quarantine" })
@@ -544,11 +567,10 @@ try {
         $alerts = @(Get-Alerts $agent | Where-Object { $_.technique -eq "T1553.005" })
         foreach ($f in @($viaUnblock, $viaStream)) {
             $leaf = Split-Path $f -Leaf
-            $deletes = @(Select-String -LiteralPath $agent.Events -SimpleMatch -Pattern $leaf |
-                ForEach-Object { $_.Line | ConvertFrom-Json } |
+            $deletes = @(Get-EventsNaming $agent @($leaf) |
                 Where-Object { $_.type -eq "file_delete" -and $_.path -match "Zone\.Identifier" })
             if ($deletes.Count -gt 0) {
-                Add-Result "#442 FileDelete of the stream ($leaf)" "PASS" "$($deletes.Count) event(s), e.g. $($deletes[0].meta.comm) $($deletes[0].path)"
+                Add-Result "#442 FileDelete of the stream ($leaf)" "PASS" "$($deletes.Count) event(s), e.g. $($deletes[0].comm) $($deletes[0].path)"
             } else {
                 Add-Result "#442 FileDelete of the stream ($leaf)" "FAIL" "no file_delete naming $leaf`:Zone.Identifier; see phase D's CSV for what Kernel-File reported"
             }

@@ -31,7 +31,7 @@
     -SinceMinutes analyses the last N minutes instead of waiting (no prompt),
     which is also how to re-read a run afterwards.
 
-    ASCII only, Windows PowerShell 5.1 (#433).
+    ASCII only, Windows PowerShell 5.1 (#433), strict mode (Latest).
 
 .PARAMETER OutDir
     Where timeline.csv and summary.txt go. Default: .\rdp-observe-<timestamp>.
@@ -44,6 +44,7 @@ param(
     [int]$SinceMinutes = 0
 )
 
+Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "../../powershell/RigCommon.ps1")
 
@@ -55,22 +56,45 @@ if (-not $OutDir) {
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $summary = Join-Path $OutDir "summary.txt"
 
+# The two readers below select nodes by XPath instead of walking $Xml.Event.EventData...:
+# under strict mode an element or a text node an event leaves out (no UserData, an empty
+# <Data/>) throws when read as a property.
+
 function Get-DataField {
     # EventData/Data[@Name] of an event, or "" when absent.
     param([xml]$Xml, [string]$Name)
-    $node = $Xml.Event.EventData.Data | Where-Object { $_.Name -eq $Name } | Select-Object -First 1
-    if ($node) { return [string]$node.'#text' }
+    foreach ($node in $Xml.DocumentElement.SelectNodes("*[local-name()='EventData']/*[local-name()='Data']")) {
+        if ($node.GetAttribute("Name") -eq $Name) { return $node.InnerText }
+    }
     return ""
+}
+
+function Get-UserDataText {
+    # The fields of an event's UserData record as "name=value ...", or "" when it has none.
+    param([xml]$Xml)
+    $record = $Xml.DocumentElement.SelectSingleNode("*[local-name()='UserData']/*")
+    if ($null -eq $record) { return "" }
+    @($record.ChildNodes | ForEach-Object { $_.Name + "=" + $_.InnerText }) -join " "
+}
+
+function Get-RegistryValue([string]$Path, [string]$Name) {
+    # $null when the key or the value is missing, for the summary to print "unknown": under
+    # strict mode, reading a property of the $null Get-ItemProperty then returns would throw.
+    $item = Get-ItemProperty -Path $Path -Name $Name -ErrorAction SilentlyContinue
+    if ($item) { $item.$Name } else { $null }
 }
 
 function Get-RdpSettings {
     $ts = "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server"
-    $tcp = Join-Path $ts "WinStations\RDP-Tcp"
-    $deny = (Get-ItemProperty -Path $ts -Name fDenyTSConnections -ErrorAction SilentlyContinue).fDenyTSConnections
-    $nla = (Get-ItemProperty -Path $tcp -Name UserAuthentication -ErrorAction SilentlyContinue).UserAuthentication
-    $layer = (Get-ItemProperty -Path $tcp -Name SecurityLayer -ErrorAction SilentlyContinue).SecurityLayer
-    $port = (Get-ItemProperty -Path $tcp -Name PortNumber -ErrorAction SilentlyContinue).PortNumber
-    return @{ Deny = $deny; Nla = $nla; Layer = $layer; Port = $port }
+    # A string, not Join-Path: Join-Path resolves the HKLM: drive, which the function test's
+    # pwsh on Linux does not have.
+    $tcp = "$ts\WinStations\RDP-Tcp"
+    return @{
+        Deny = Get-RegistryValue $ts fDenyTSConnections
+        Nla = Get-RegistryValue $tcp UserAuthentication
+        Layer = Get-RegistryValue $tcp SecurityLayer
+        Port = Get-RegistryValue $tcp PortNumber
+    }
 }
 
 Write-RigSummary $summary "# RDP event observation (#285 / #700)"
@@ -145,18 +169,12 @@ Add-Events "Security" ($common + @{ LogName = "Security"; Id = 4624 }) {
 $rcm = "Microsoft-Windows-TerminalServices-RemoteConnectionManager/Operational"
 Add-Events "RCM" ($common + @{ LogName = $rcm }) {
     param($xml, $e)
-    $u = $xml.Event.UserData.ChildNodes | Select-Object -First 1
-    $msg = ""
-    if ($u) { $msg = (@($u.ChildNodes | ForEach-Object { $_.Name + "=" + $_.InnerText }) -join " ") }
-    "level=" + $e.LevelDisplayName + " " + $msg
+    "level=" + $e.LevelDisplayName + " " + (Get-UserDataText $xml)
 }
 $lsm = "Microsoft-Windows-TerminalServices-LocalSessionManager/Operational"
 Add-Events "LSM" ($common + @{ LogName = $lsm; Id = @(21, 22, 23, 24, 25) }) {
     param($xml, $e)
-    $u = $xml.Event.UserData.ChildNodes | Select-Object -First 1
-    $msg = ""
-    if ($u) { $msg = (@($u.ChildNodes | ForEach-Object { $_.Name + "=" + $_.InnerText }) -join " ") }
-    $msg
+    Get-UserDataText $xml
 }
 
 $timeline = @($rows | Where-Object { $_.Detail } | Sort-Object Time)

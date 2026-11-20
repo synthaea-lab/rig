@@ -26,8 +26,12 @@ the Windows SDK import libraries, which the Build Tools install brings.
 
 The guest scripts are ASCII-only and compatible with Windows PowerShell 5.1, the version every
 Windows box ships, so nothing needs installing before the rig can drive a guest.
-`run-scenarios.ps1` and [`LabAgent.ps1`](../runner/LabAgent.ps1) run under
-`Set-StrictMode -Version Latest`.
+Every script the rig runs as a file starts with `Set-StrictMode -Version Latest`, and the
+dot-sourced ones ([`LabAgent.ps1`](../runner/LabAgent.ps1), `RigCommon.ps1`, the Hyper-V
+`helpers.ps1`) run under their caller's mode. A native tool whose routine stderr must not stop
+a script under `$ErrorActionPreference = "Stop"` runs in a function that sets `"Continue"` in
+its own scope and returns the exit code (`Invoke-CargoBuild` in `agent-build.ps1`,
+`Invoke-ScenarioScript` in `run-scenarios.ps1`).
 
 ### The Windows runner
 

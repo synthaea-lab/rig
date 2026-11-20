@@ -34,10 +34,19 @@ the rig can check without a VM. Run it before opening a pull request. It needs t
 - `run-scenarios.sh` judges the alert snapshots in `tests/judge/` as each case's `verdict`
   file states, and judges every sidecar at its bounds: a PASS with every expected technique
   at `min_count`, a FAIL past `min_count + tolerance`;
-- with PowerShell (`pwsh`) installed, `run-scenarios.ps1` reads every sidecar exactly as
+- with PowerShell (`pwsh`) installed, every PowerShell script outside `tests/` that runs as
+  a file sets `Set-StrictMode -Version Latest` as its first statement, and the dot-sourced
+  ones (`vagrant/hyperv/helpers.ps1`, `powershell/RigCommon.ps1`, `runner/LabAgent.ps1`) set
+  neither strict mode nor `$ErrorActionPreference` in the session that loads them
+  (`tests/strict-mode.ps1`; a command that needs another preference sets it in its own
+  function scope); `run-scenarios.ps1` reads every sidecar exactly as
   `run-scenarios.sh` does, `runner/windows/validate-admin.ps1` resolves its scenarios
-  sibling and its phase functions record, against fakes of the ETW host and the agent, the
-  results and calls `tests/validate-admin-phases.ps1` states, and `runner/LabAgent.ps1`
+  sibling, reads alerts and events that leave fields out
+  (`tests/validate-admin-agent-output.ps1`), and its phase functions record, against fakes
+  of the ETW host and the agent, the results and calls `tests/validate-admin-phases.ps1`
+  states; the functions of `agent-build.ps1`, `agent-install.ps1`, `capture-sysmon-etw.ps1`
+  and `observe-rdp.ps1` behave under strict mode against faked programs as
+  `tests/windows-script-functions.ps1` states, and `runner/LabAgent.ps1`
   (the agent lifecycle both PowerShell runners share) writes, from `runner/lab-agent.toml.template`, the lab `agent.toml` of `tests/lab-agent/`
   byte for byte, and starts, waits for and stops an agent
   by pid; and the scripts that dot-source `powershell/RigCommon.ps1` (the admin check
