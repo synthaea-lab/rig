@@ -20,6 +20,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import rig  # noqa: E402
+from tools import riglib  # noqa: E402
 
 FAKE_VAGRANT = r'''
 import json, os, sys
@@ -90,7 +91,7 @@ class VagrantRun(FakeVagrant):
         self.assertEqual(out.getvalue(), "+ (vagrant/) vagrant up debian12 --provider libvirt\n")
         [call] = self.calls()
         self.assertEqual(call["args"], ["up", "debian12", "--provider", "libvirt"])
-        self.assertEqual(Path(call["cwd"]).resolve(), rig.VAGRANT_DIR.resolve())
+        self.assertEqual(Path(call["cwd"]).resolve(), riglib.VAGRANT_DIR.resolve())
         self.assertEqual(call["provider"], "libvirt")
 
     def test_a_failure_raises(self) -> None:

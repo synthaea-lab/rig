@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import rig  # noqa: E402
-from rig import Flag, Guest  # noqa: E402
+from rig import Flag, Guest, LinuxBuildOptions  # noqa: E402
 
 SOURCE = "agent 1a2b3c4, rules 5d6e7f8+dirty, scenarios 9a0b1c2, rig 3d4e5f6"
 LINUX = Guest("linux")
@@ -23,19 +23,19 @@ WINDOWS = Guest("windows")
 class OrdinaryCommandsAreUnchanged(unittest.TestCase):
     def test_linux_build(self) -> None:
         self.assertEqual(
-            rig.build_command("debian12", LINUX, SOURCE, offline=True, ort="static", ort_compat=True),
+            rig.build_command("debian12", LINUX, SOURCE, LinuxBuildOptions(offline=True, ort="static", ort_compat=True)),
             ["ssh", "debian12", "--command",
              f"SYNTHAEA_SOURCE='{SOURCE}' bash /synthaea/rig/provisioning/agent-build.sh "
              "--ort static --offline --ort-compat"])
 
     def test_linux_build_defaults(self) -> None:
         self.assertEqual(
-            rig.build_command("ubuntu2404", LINUX, SOURCE, offline=False, ort="auto", ort_compat=False)[-1],
+            rig.build_command("ubuntu2404", LINUX, SOURCE, LinuxBuildOptions(offline=False, ort="auto", ort_compat=False))[-1],
             f"SYNTHAEA_SOURCE='{SOURCE}' bash /synthaea/rig/provisioning/agent-build.sh --ort auto")
 
     def test_windows_build(self) -> None:
         self.assertEqual(
-            rig.build_command("win11", WINDOWS, SOURCE, offline=True, ort="static", ort_compat=True),
+            rig.build_command("win11", WINDOWS, SOURCE, LinuxBuildOptions(offline=True, ort="static", ort_compat=True)),
             ["winrm", "win11", "--shell", "powershell", "--command",
              f"& C:\\synthaea\\rig\\provisioning\\agent-build.ps1 -Source '{SOURCE}'"])
 
@@ -117,6 +117,15 @@ class GuestBoundaries(unittest.TestCase):
         self.assertEqual(LINUX.script_path("runner/run-scenarios.sh"), "/synthaea/rig/runner/run-scenarios.sh")
         self.assertEqual(WINDOWS.script_path("runner/run-scenarios.ps1"),
                          "C:\\synthaea\\rig\\runner\\run-scenarios.ps1")
+
+
+class NonAsciiLines(unittest.TestCase):
+    def test_numbers_each_line_holding_a_byte_outside_ascii(self) -> None:
+        content = "Write-Host 'ok'\r\n# a ’ quote\r\nexit 0\r\n# café\r\n".encode()
+        self.assertEqual(rig.non_ascii_lines(content), [2, 4])
+
+    def test_an_ascii_script_has_none(self) -> None:
+        self.assertEqual(rig.non_ascii_lines(b"Set-StrictMode -Version Latest\r\n"), [])
 
 
 if __name__ == "__main__":

@@ -36,7 +36,6 @@ from tools.riglib import (
     EXIT_FAILED,
     RIG,
     ROOT,
-    VAGRANT_DIR,
     CheckFailed,
     RigError,
     echo_vagrant,
@@ -161,7 +160,8 @@ def provision_problems(provision: object, guest: str) -> list[str]:
     if not isinstance(provision, str):
         return [shape]
     parts = provision.split("/")
-    if ("\\" in provision or parts[0] not in SIBLINGS or len(parts) < 2
+    sibling, *path_in_sibling = parts
+    if ("\\" in provision or sibling not in SIBLINGS or not path_in_sibling
             or any(part in ("", ".", "..") for part in parts) or not provision.endswith(PROVISION_SUFFIX[guest])):
         return [shape]
     return []
@@ -184,8 +184,11 @@ def memory_problems(memory: object) -> list[str]:
     return []
 
 
+UNPRIVILEGED_PORTS = range(1024, 65536)
+
+
 def port_problems(port: object) -> list[str]:
-    if isinstance(port, bool) or not isinstance(port, int) or not 1024 <= port <= 65535:
+    if isinstance(port, bool) or not isinstance(port, int) or port not in UNPRIVILEGED_PORTS:
         return [f"qemu_ssh_port is {json.dumps(port)}, not a port number from 1024 to 65535"]
     return []
 
@@ -367,12 +370,25 @@ def cmd_up(name: str) -> None:
     vagrant_run("up", name, "--provider", provider())
 
 
-def build_command(name: str, guest: Guest, source: str, offline: bool, ort: str, ort_compat: bool) -> list[str]:
+@dataclass(frozen=True)
+class LinuxBuildOptions:
+    """How provisioning/agent-build.sh builds the agent (Windows guests take none of these)."""
+
+    offline: bool
+    ort: str
+    ort_compat: bool
+
+    def flags(self) -> list[str]:
+        return ([Flag("--ort"), self.ort] + ([Flag("--offline")] if self.offline else [])
+                + ([Flag("--ort-compat")] if self.ort_compat else []))
+
+
+def build_command(name: str, guest: Guest, source: str, options: LinuxBuildOptions) -> list[str]:
     """The vagrant arguments that build the agent in the guest; `source` is source_info()."""
     if guest.windows:
         return guest.shell(name, guest.invoke("provisioning/agent-build.ps1", Flag("-Source"), source))
-    flags = [Flag("--ort"), ort] + ([Flag("--offline")] if offline else []) + ([Flag("--ort-compat")] if ort_compat else [])
-    return guest.shell(name, guest.invoke("provisioning/agent-build.sh", *flags, env={"SYNTHAEA_SOURCE": source}))
+    return guest.shell(name, guest.invoke("provisioning/agent-build.sh", *options.flags(),
+                                          env={"SYNTHAEA_SOURCE": source}))
 
 
 def run_command(name: str, guest: Guest, source: str, scenarios: list[str]) -> list[str]:
@@ -390,16 +406,16 @@ def print_dry_run(args: list[str]) -> None:
     print("(dry run: nothing synced or run)")
 
 
-def cmd_build(name: str, offline: bool, ort: str, ort_compat: bool, dry_run: bool = False) -> None:
+def cmd_build(name: str, options: LinuxBuildOptions, dry_run: bool = False) -> None:
     target = machine(name)
     guest = Guest.of(target)
     need_siblings()
-    args = build_command(name, guest, source_info(), offline, ort, ort_compat)
+    args = build_command(name, guest, source_info(), options)
     if dry_run:
         print_dry_run(args)
         return
     sync(target)
-    if offline and not guest.windows:
+    if options.offline and not guest.windows:
         subprocess.run([sys.executable, str(RIG / "tools" / "offline_bundle.py"), "--push", name],
                        check=True, env=vagrant_env())
     vagrant_run(*args)
@@ -462,7 +478,8 @@ def cmd_down(name: str, destroy: bool) -> None:
 
 
 def cmd_check() -> None:
-    """What CI can check without a VM: the unit tests pass, scripts parse and are shellcheck-clean, the catalogs
+    """What CI can check without a VM: the unit tests pass, the Python is ruff-clean, every
+    PowerShell script is ASCII and parses, shell scripts parse and are shellcheck-clean, the catalogs
     match the scenarios, the two runners read the sidecars alike, run-scenarios.sh judges
     alert snapshots as tests/judge states, every PowerShell script run as a file sets strict
     mode first and no dot-sourced one changes its caller's modes, runner/windows/validate-admin.ps1
@@ -486,6 +503,9 @@ def cmd_check() -> None:
 def run_checks(bash: str) -> None:
     """The checks of cmd_check, in order; the first that fails raises."""
     check_unit_tests()
+    check_python_lint()
+    check_powershell_scripts_ascii()
+    check_powershell_scripts_parse()
     scripts = sorted([*RIG.glob("*.sh"), *RIG.glob("*/*.sh"), *RIG.glob("runner/lib/*.sh")])
     for script in scripts:
         subprocess.run([bash, "-n", str(script.relative_to(RIG))], cwd=RIG, check=True)
@@ -521,6 +541,39 @@ def check_unit_tests() -> None:
     """The stdlib unittest suites in tests/ (test_*.py) pass."""
     subprocess.run([sys.executable, "-B", "-m", "unittest", "discover", "--start-directory", "tests",
                     "--pattern", "test_*.py"], cwd=RIG, check=True)
+
+
+def check_python_lint() -> None:
+    """rig.py, tools/ and tests/ are clean under ruff.toml (the workspace scripts' rule set)."""
+    ruff = shutil.which("ruff")
+    if not ruff:
+        print("skipped: no ruff for the Python lint")
+        return
+    found = subprocess.run([ruff, "check", "--config", "ruff.toml", "."], cwd=RIG, check=False)
+    if found.returncode != 0:
+        raise CheckFailed("ruff has findings in the rig's Python (above)")
+
+
+def check_powershell_scripts_ascii() -> None:
+    """Every PowerShell script is ASCII: Windows PowerShell 5.1 reads a file without a BOM in
+    the ANSI code page, so a typographic quote or dash changes what the script says."""
+    scripts = sorted(RIG.rglob("*.ps1"))
+    offenders = [f"{script.relative_to(RIG).as_posix()}:{line_number}"
+                 for script in scripts
+                 for line_number in non_ascii_lines(script.read_bytes())]
+    if offenders:
+        raise CheckFailed("non-ASCII characters in PowerShell scripts: " + ", ".join(offenders))
+    print(f"rig: {len(scripts)} PowerShell scripts are ASCII", flush=True)
+
+
+def non_ascii_lines(content: bytes) -> list[int]:
+    """The 1-based numbers of the lines of `content` that hold a byte outside ASCII."""
+    return [number for number, line in enumerate(content.splitlines(), start=1) if not line.isascii()]
+
+
+def check_powershell_scripts_parse() -> None:
+    """Every PowerShell script parses, tests/ included, as tests/powershell-scripts-parse.ps1 states."""
+    run_powershell_test("powershell-scripts-parse.ps1", "PowerShell parse check")
 
 
 def check_shellcheck_clean(scripts: list[Path]) -> None:
@@ -674,127 +727,88 @@ def verdict_status(verdict: list[str]) -> str:
     return next(line.removeprefix("status=") for line in verdict if line.startswith("status="))
 
 
-def check_admin_validation_loads_common() -> None:
-    """runner/windows/validate-admin.ps1 resolves and loads ROOT/scenarios/scenarios/common.ps1."""
+def run_powershell_test(test: str, what: str, *args: str) -> None:
+    """Runs tests/`test` with pwsh, or says the `what` check is skipped where there is no pwsh."""
     pwsh = shutil.which("pwsh")
     if not pwsh:
-        print("skipped: no pwsh for the runner/windows/validate-admin.ps1 sibling-path check")
+        print(f"skipped: no pwsh for the {what}")
         return
-    if not (ROOT / "scenarios").is_dir():
-        print(f"skipped: no {ROOT / 'scenarios'} for the runner/windows/validate-admin.ps1 sibling-path check")
-        return
-    subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-File",
-                    str(RIG / "tests" / "validate-admin-resolves-siblings.ps1"), "-Root", str(ROOT)],
+    subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-File", str(RIG / "tests" / test), *args],
                    cwd=RIG, check=True)
+
+
+def run_powershell_test_with_scenarios(test: str, what: str) -> None:
+    """run_powershell_test with `-Root ROOT`, for a test that reads the scenarios sibling, or
+    says the `what` check is skipped where that sibling is not checked out."""
+    if not (ROOT / "scenarios").is_dir():
+        print(f"skipped: no {ROOT / 'scenarios'} for the {what}")
+        return
+    run_powershell_test(test, what, "-Root", str(ROOT))
+
+
+def check_admin_validation_loads_common() -> None:
+    """runner/windows/validate-admin.ps1 resolves and loads ROOT/scenarios/scenarios/common.ps1."""
+    run_powershell_test_with_scenarios("validate-admin-resolves-siblings.ps1",
+                                       "runner/windows/validate-admin.ps1 sibling-path check")
 
 
 def check_powershell_strict_mode() -> None:
     """Every PowerShell script outside tests/ that runs as a file sets strict mode (Latest)
     first, and the dot-sourced ones set neither strict mode nor $ErrorActionPreference in
     their caller's session, as tests/strict-mode.ps1 states."""
-    pwsh = shutil.which("pwsh")
-    if not pwsh:
-        print("skipped: no pwsh for the PowerShell strict-mode check")
-        return
-    subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-File", str(RIG / "tests" / "strict-mode.ps1")],
-                   cwd=RIG, check=True)
+    run_powershell_test("strict-mode.ps1", "PowerShell strict-mode check")
 
 
 def check_admin_validation_reads_agent_output() -> None:
     """runner/windows/validate-admin.ps1 reads alerts and events that leave fields out, under
     strict mode and with the scenarios sibling's common.ps1, as
     tests/validate-admin-agent-output.ps1 states."""
-    pwsh = shutil.which("pwsh")
-    if not pwsh:
-        print("skipped: no pwsh for the runner/windows/validate-admin.ps1 agent-output check")
-        return
-    if not (ROOT / "scenarios").is_dir():
-        print(f"skipped: no {ROOT / 'scenarios'} for the runner/windows/validate-admin.ps1 agent-output check")
-        return
-    subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-File",
-                    str(RIG / "tests" / "validate-admin-agent-output.ps1"), "-Root", str(ROOT)],
-                   cwd=RIG, check=True)
+    run_powershell_test_with_scenarios("validate-admin-agent-output.ps1", "runner/windows/validate-admin.ps1 agent-output check")
 
 
 def check_admin_validation_phases() -> None:
     """The phases of runner/windows/validate-admin.ps1 that are functions record the results
     and make the calls tests/validate-admin-phases.ps1 states, against fakes of the host."""
-    pwsh = shutil.which("pwsh")
-    if not pwsh:
-        print("skipped: no pwsh for the runner/windows/validate-admin.ps1 phase check")
-        return
-    subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-File", str(RIG / "tests" / "validate-admin-phases.ps1")],
-                   cwd=RIG, check=True)
+    run_powershell_test("validate-admin-phases.ps1", "runner/windows/validate-admin.ps1 phase check")
 
 
 def check_lab_agent_lifecycle() -> None:
     """runner/LabAgent.ps1 writes the lab agent.toml of tests/lab-agent/ (from
     runner/lab-agent.toml.template) and starts, waits for and stops an agent by pid (a fake
     one, where /bin/sh exists)."""
-    pwsh = shutil.which("pwsh")
-    if not pwsh:
-        print("skipped: no pwsh for the runner/LabAgent.ps1 lifecycle check")
-        return
-    subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-File", str(RIG / "tests" / "lab-agent.ps1")],
-                   cwd=RIG, check=True)
+    run_powershell_test("lab-agent.ps1", "runner/LabAgent.ps1 lifecycle check")
 
 
 def check_rig_common() -> None:
     """The scripts that dot-source powershell/RigCommon.ps1 parse and find it, keep no admin
     check or Say of their own, and its Assert-RigAdministrator and Write-RigSummary behave as
     tests/rig-common.ps1 states."""
-    pwsh = shutil.which("pwsh")
-    if not pwsh:
-        print("skipped: no pwsh for the powershell/RigCommon.ps1 check")
-        return
-    subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-File", str(RIG / "tests" / "rig-common.ps1")],
-                   cwd=RIG, check=True)
+    run_powershell_test("rig-common.ps1", "powershell/RigCommon.ps1 check")
 
 
 def check_powershell_runner_functions() -> None:
     """runner/run-scenarios.ps1's functions count, format and run a scenario as
     tests/run-scenarios-functions.ps1 states."""
-    pwsh = shutil.which("pwsh")
-    if not pwsh:
-        print("skipped: no pwsh for the runner/run-scenarios.ps1 function check")
-        return
-    subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-File", str(RIG / "tests" / "run-scenarios-functions.ps1")],
-                   cwd=RIG, check=True)
+    run_powershell_test("run-scenarios-functions.ps1", "runner/run-scenarios.ps1 function check")
 
 
 def check_powershell_runner_binding() -> None:
     """runner/run-scenarios.ps1 binds the scenario names rig.py passes after -Machine and
     -Source to -Names only, as tests/run-scenarios-binding.ps1 states."""
-    pwsh = shutil.which("pwsh")
-    if not pwsh:
-        print("skipped: no pwsh for the runner/run-scenarios.ps1 binding check")
-        return
-    subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-File", str(RIG / "tests" / "run-scenarios-binding.ps1")],
-                   cwd=RIG, check=True)
+    run_powershell_test("run-scenarios-binding.ps1", "runner/run-scenarios.ps1 binding check")
 
 
 def check_windows_script_functions() -> None:
     """The functions of provisioning/agent-build.ps1, provisioning/agent-install.ps1,
     tools/windows/capture-sysmon-etw.ps1 and tools/windows/observe-rdp.ps1 behave under strict
     mode, against faked programs, as tests/windows-script-functions.ps1 states."""
-    pwsh = shutil.which("pwsh")
-    if not pwsh:
-        print("skipped: no pwsh for the Windows script function check")
-        return
-    subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-File",
-                    str(RIG / "tests" / "windows-script-functions.ps1")],
-                   cwd=RIG, check=True)
+    run_powershell_test("windows-script-functions.ps1", "Windows script function check")
 
 
 def check_hyperv_helpers() -> None:
     """vagrant/hyperv/helpers.ps1 names its commands Verb-Noun, keeps vup, vssh, ... as their
     aliases and runs the rig.py or vagrant command lines tests/hyperv-helpers.ps1 states."""
-    pwsh = shutil.which("pwsh")
-    if not pwsh:
-        print("skipped: no pwsh for the vagrant/hyperv/helpers.ps1 check")
-        return
-    subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-File", str(RIG / "tests" / "hyperv-helpers.ps1")],
-                   cwd=RIG, check=True)
+    run_powershell_test("hyperv-helpers.ps1", "vagrant/hyperv/helpers.ps1 check")
 
 
 def main() -> int:
@@ -822,7 +836,7 @@ def main() -> int:
     commands = {
         "list": cmd_list,
         "up": lambda: cmd_up(args.machine),
-        "build": lambda: cmd_build(args.machine, args.offline, args.ort, args.ort_compat, args.dry_run),
+        "build": lambda: cmd_build(args.machine, LinuxBuildOptions(args.offline, args.ort, args.ort_compat), args.dry_run),
         "run": lambda: cmd_run(args.machine, args.scenarios, args.dry_run),
         "report": lambda: cmd_report(args.machine),
         "down": lambda: cmd_down(args.machine, args.destroy),

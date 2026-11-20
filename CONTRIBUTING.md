@@ -23,6 +23,9 @@ the rig can check without a VM. Run it before opening a pull request. It needs t
   how `rig.py` and the bash scripts follow the [exit-code convention](#exit-codes),
   and `tests/test_agent_build.py` what `provisioning/agent-build.sh` runs, refuses and
   records in `build-info`, against a fake guest (Linux only);
+- the Python (`rig.py`, `tools/`, `tests/`) is clean under `ruff.toml` when `ruff` is
+  installed (CI pins it);
+- every PowerShell script is ASCII, and parses when `pwsh` is installed;
 - every shell script parses, and is shellcheck-clean when `shellcheck` is installed;
 - `machines.json` holds what the Vagrantfile and `rig.py` rely on: a `linux` or `windows`
   guest, a non-empty `boxes` of known providers, `prep` scripts that exist in `provisioning/`,

@@ -39,6 +39,8 @@ from tools.riglib import RIG, ROOT, RigError, run_cli, vagrant_capture, vagrant_
 
 AGENT = ROOT / "agent"
 CACHE = RIG / ".offline"
+# ort-sys's dist.tsv rows: target, feature set, url, sha256.
+DIST_TSV_COLUMNS = 4
 
 
 class BundleError(RigError):
@@ -112,7 +114,7 @@ def ort_runtime(vendor_dir: Path, target: str) -> tuple[str, Path | None]:
         raise BundleError("no ort-sys in the vendored crates: did agent/ stop using ort?")
     for line in dists[-1].read_text(encoding="utf-8").splitlines()[1:]:
         cols = line.split("\t")
-        if len(cols) == 4 and cols[0] == target and cols[1] == "none":
+        if len(cols) == DIST_TSV_COLUMNS and cols[0] == target and cols[1] == "none":
             digest = cols[3]
             for root in ort_cache_roots():
                 d = root / "dfbin" / target / digest

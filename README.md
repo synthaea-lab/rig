@@ -125,7 +125,7 @@ incremental.
 | `run <machine> [scenario ...]` | Re-syncs, then runs each scenario (default: every safe, self-contained one) against a fresh standalone agent and copies the report to `reports/`. Exits non-zero when a scenario fails or errors |
 | `report [machine]` | Prints the newest report, of one machine if given |
 | `down <machine> [--destroy]` | Halts the VM, or deletes it |
-| `check` | Checks what can be checked without a VM: scripts parse and are shellcheck-clean, the runner catalogs cover every scenario, both runners read every sidecar alike, the runner judges the `tests/judge/` snapshots as stated. See [CONTRIBUTING.md](CONTRIBUTING.md) |
+| `check` | Checks what can be checked without a VM: the Python is ruff-clean, PowerShell scripts are ASCII and parse, shell scripts parse and are shellcheck-clean, the runner catalogs cover every scenario, both runners read every sidecar alike, the runner judges the `tests/judge/` snapshots as stated. See [CONTRIBUTING.md](CONTRIBUTING.md) |
 
 Every command exits 0 when it succeeds, 1 when it ran and something failed (a scenario, a
 check, the build) and 2 when it could not run (a usage error, or something missing such as

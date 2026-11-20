@@ -65,7 +65,8 @@ class MainExitCodes(unittest.TestCase):
             self.assertEqual(self.main("check"), (1, "error: bash -n runner/run-scenarios.sh exited 2 (above)\n"))
 
     def test_an_invalid_catalog_is_a_check_finding_in_check(self) -> None:
-        with mock.patch.object(rig, "check_unit_tests"), mock.patch.object(rig.subprocess, "run"), \
+        with mock.patch.object(rig, "check_unit_tests"), mock.patch.object(rig, "check_python_lint"), \
+                mock.patch.object(rig.subprocess, "run"), \
                 mock.patch.object(rig, "check_catalog", side_effect=rig.RigError("machines.json is invalid")):
             self.assertEqual(self.main("check"), (1, "error: machines.json is invalid\n"))
 

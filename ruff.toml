@@ -1,0 +1,13 @@
+# Lint for the rig's Python (rig.py, tools/, tests/), run by `python rig.py check`.
+# The same rule set as the workspace's scripts/ruff.toml, so both read alike.
+# Matches the code as written: argv lists and f-string messages read better on one line.
+line-length = 130
+
+[lint]
+# pycodestyle, pyflakes, import order, upgrades, bugbear, simplifications, pylint and
+# complexity, plus unused arguments, refurb and shebang checks. Not T201 (print is a CLI's
+# output channel) nor D1 (small, self-describing functions).
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "PL", "C90", "ARG", "FURB", "EXE"]
+
+[lint.mccabe]
+max-complexity = 10

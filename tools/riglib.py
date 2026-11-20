@@ -12,8 +12,8 @@ import platform
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 RIG = Path(__file__).resolve().parents[1]
 # The directory holding agent/, rules/ and scenarios/ (server/ optional) next to rig/.
