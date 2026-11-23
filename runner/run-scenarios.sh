@@ -46,6 +46,7 @@
 # Environment: SYNTHAEA_ROOT (default /synthaea), RIG_STATE (default ~/synthaea-rig: reads
 # build-info from agent-build.sh, writes runs/ and reports/), SYNTHAEA_SOURCE (what the
 # sources are, set by rig.py).
+# No -e: a scenario's exit status is data the judge reads, not a reason to stop the run.
 set -uo pipefail
 # Character-aware ${var:0:n} for clip(): alert messages carry UTF-8 (arrows, dashes).
 export LC_ALL=C.UTF-8
@@ -278,46 +279,56 @@ echo "   $PROG_OK programs accepted by the verifier, $CHECK_BAD check(s) not OK"
 
 # --- one scenario ----------------------------------------------------------------------
 declare -A R_STATUS R_FIRED R_UNEXP R_FOLLOW R_TIME R_DETAIL
-run_one() {
-  local n=$1 W=$RUN/$1 reason flags script_env start sudo_pid agent_pid rc settle last size quiet
-  mkdir -p "$W/content/rules"
-  reason=$(missing_need "$n")
-  if [ -n "$reason" ]; then
-    R_STATUS[$n]=SKIP; R_DETAIL[$n]="$reason"; R_TIME[$n]=0; R_FIRED[$n]=""; R_UNEXP[$n]=""; R_FOLLOW[$n]=""
-    echo "   SKIP: $reason"; return
-  fi
+# The running agent's two pids, set by start_agent: sudo's (the job to wait for) and the agent's
+# (the process to signal, its child).
+AGENT_SUDO_PID="" AGENT_PID=""
 
-  # Content: the rules checkout, plus the scenario's own YARA file(s).
+record_result() {   # $1 = scenario, then status, detail, seconds, fired, unexpected, follow-ups
+  local n=$1
+  R_STATUS[$n]=$2; R_DETAIL[$n]=$3; R_TIME[$n]=$4; R_FIRED[$n]=$5; R_UNEXP[$n]=$6; R_FOLLOW[$n]=$7
+}
+
+seconds_since() { echo $(( $(date +%s) - $1 )); }
+
+# The content the agent loads: the rules checkout, plus the scenario's own YARA file(s).
+stage_content() {   # $1 = scenario, $2 = its run directory
+  local n=$1 W=$2 f
   cp -r "$ROOT/rules/sigma" "$ROOT/rules/yara" "$W/content/rules/" 2>/dev/null
   mkdir -p "$W/content/rules/yara"
   for f in $(catalog_get "$n" yara); do cp "$SCEN_DIR/$f" "$W/content/rules/yara/"; done
   chmod -R a+rX "$W"
+}
 
+# Starts the agent on the staged content and waits up to 90 s for its sensor to listen. Sets
+# AGENT_SUDO_PID and AGENT_PID; when the sensor never listens, stops the agent and returns 1.
+start_agent() {   # $1 = scenario, $2 = its run directory
+  local n=$1 W=$2 flags
   flags=$(catalog_get "$n" agent_flags)
-  start=$(date +%s)
   # SC2086: the flags are word-split on purpose (the catalog's agent_flags column).
   # SC2024: the log is opened by the runner, not root, on purpose: it stays the user's file,
   # and $! must stay sudo's pid (a `| sudo tee` would make it tee's).
   # shellcheck disable=SC2086,SC2024
   sudo env RUST_LOG=info "$AGENT" run --standalone --content-dir "$W/content" \
     --alerts "$W/alerts.ndjson" --events "$W/events.jsonl" $flags > "$W/agent.log" 2>&1 &
-  sudo_pid=$!
+  AGENT_SUDO_PID=$!
   for _ in $(seq 1 90); do
     grep -q 'sensor-linux: listening' "$W/agent.log" 2>/dev/null && break
-    alive "$sudo_pid" || break
+    alive "$AGENT_SUDO_PID" || break
     sleep 1
   done
-  agent_pid=$(pgrep -P "$sudo_pid" | head -n1)
-  agent_pid=${agent_pid:-$sudo_pid}
+  AGENT_PID=$(pgrep -P "$AGENT_SUDO_PID" | head -n1)
+  AGENT_PID=${AGENT_PID:-$AGENT_SUDO_PID}
   if ! grep -q 'sensor-linux: listening' "$W/agent.log"; then
-    stop_agent "$sudo_pid" "$agent_pid"
-    R_STATUS[$n]=ERROR; R_DETAIL[$n]="agent did not start (see $W/agent.log)"; R_TIME[$n]=$(( $(date +%s) - start ))
-    R_FIRED[$n]=""; R_UNEXP[$n]=""; R_FOLLOW[$n]=""
-    echo "   ERROR: agent did not start"; return
+    stop_agent "$AGENT_SUDO_PID" "$AGENT_PID"
+    return 1
   fi
-  sleep 1
+}
 
-  local envs=(EVENTS="$W/events.jsonl" ALERTS="$W/alerts.ndjson" AGENT_PID="$agent_pid")
+# Runs the scenario script, as root when the catalog says so, for at most 300 s. Its exit status
+# is this function's: the judge reads it as data.
+run_script() {   # $1 = scenario, $2 = its run directory
+  local n=$1 W=$2 script_env
+  local envs=(EVENTS="$W/events.jsonl" ALERTS="$W/alerts.ndjson" AGENT_PID="$AGENT_PID")
   script_env=$(catalog_get "$n" env)
   # shellcheck disable=SC2206
   envs+=($script_env)
@@ -326,25 +337,25 @@ run_one() {
   else
     (cd "$W" && timeout 300 env "${envs[@]}" bash "$SCEN_DIR/$n.sh") > "$W/scenario.log" 2>&1
   fi
-  rc=$?
+}
 
-  # Settle: the catalog's delay, then until the alert file has been quiet for 2 s (max 20 s).
-  settle=$(catalog_get "$n" settle)
+# The catalog's settle delay, then until the alert file has been quiet for 2 s (max 20 s).
+wait_alerts_quiet() {   # $1 = scenario, $2 = the alert file
+  local settle last=-1 quiet=0 size
+  settle=$(catalog_get "$1" settle)
   sleep "${settle:-3}"
-  last=-1 quiet=0
   for _ in $(seq 1 20); do
-    size=$(stat -c %s "$W/alerts.ndjson" 2>/dev/null || echo 0)
+    size=$(stat -c %s "$2" 2>/dev/null || echo 0)
     if [ "$size" = "$last" ]; then quiet=$((quiet + 1)); [ "$quiet" -ge 2 ] && break; else quiet=0; fi
     last=$size; sleep 1
   done
-  # Snapshot BEFORE stopping: the stop signal itself is a T1562.001 against the agent.
-  cp "$W/alerts.ndjson" "$W/alerts.snapshot.ndjson" 2>/dev/null || : > "$W/alerts.snapshot.ndjson"
-  stop_agent "$sudo_pid" "$agent_pid"
-  R_TIME[$n]=$(( $(date +%s) - start ))
+}
 
-  # The verdict stays in the run directory with the rest of the raw material.
+# Judges the alert snapshot against the sidecar and records the verdict. The verdict stays in the
+# run directory with the rest of the raw material.
+record_verdict() {   # $1 = scenario, $2 = its run directory, $3 = the script's exit status, $4 = seconds
+  local n=$1 W=$2 rc=$3 key value status="" fired="" unexp="" follow="" fail=""
   judge "$W/alerts.snapshot.ndjson" "$SCEN_DIR/$n.yaml" "$rc" > "$W/verdict"
-  local key value status="" fired="" unexp="" follow="" fail=""
   while IFS='=' read -r key value; do
     case $key in
       status) status=$value ;;
@@ -354,14 +365,41 @@ run_one() {
       detail) fail=$value ;;
     esac
   done < "$W/verdict"
-  # A scenario that checks its own side says why it failed: keep those lines.
-  if [ "$rc" -ne 0 ]; then
-    local why
-    why=$(grep -iE '(^|[[:space:]])(FAIL|ERROR)' "$W/scenario.log" | head -n 5 | sed 's/^[[:space:]]*//')
-    [ -n "$why" ] && fail+=$'\n\nScenario output:\n\n'"$(printf '%s\n' "$why" | sed 's/^/    /')"
-  fi
-  R_STATUS[$n]=$status; R_FIRED[$n]=$fired; R_UNEXP[$n]=$unexp; R_FOLLOW[$n]=$follow; R_DETAIL[$n]=$fail
+  [ "$rc" -ne 0 ] && fail+=$(scenario_failure_lines "$W/scenario.log")
+  record_result "$n" "$status" "$fail" "$4" "$fired" "$unexp" "$follow"
   echo "   $status  fired: ${fired:-none}${unexp:+  | unexpected: $unexp}${fail:+  | ${fail%%$'\n'*}}"
+}
+
+# A scenario that checks its own side says why it failed: its first FAIL/ERROR lines, as an
+# indented block to append to the detail (nothing when there are none).
+scenario_failure_lines() {   # $1 = the scenario's log
+  local why
+  why=$(grep -iE '(^|[[:space:]])(FAIL|ERROR)' "$1" | head -n 5 | sed 's/^[[:space:]]*//')
+  [ -n "$why" ] && printf '\n\nScenario output:\n\n%s' "$(printf '%s\n' "$why" | sed 's/^/    /')"
+}
+
+run_one() {
+  local n=$1 W=$RUN/$1 reason start rc
+  mkdir -p "$W/content/rules"
+  reason=$(missing_need "$n")
+  if [ -n "$reason" ]; then
+    record_result "$n" SKIP "$reason" 0 "" "" ""
+    echo "   SKIP: $reason"; return
+  fi
+  stage_content "$n" "$W"
+  start=$(date +%s)
+  if ! start_agent "$n" "$W"; then
+    record_result "$n" ERROR "agent did not start (see $W/agent.log)" "$(seconds_since "$start")" "" "" ""
+    echo "   ERROR: agent did not start"; return
+  fi
+  sleep 1
+  run_script "$n" "$W"
+  rc=$?
+  wait_alerts_quiet "$n" "$W/alerts.ndjson"
+  # Snapshot BEFORE stopping: the stop signal itself is a T1562.001 against the agent.
+  cp "$W/alerts.ndjson" "$W/alerts.snapshot.ndjson" 2>/dev/null || : > "$W/alerts.snapshot.ndjson"
+  stop_agent "$AGENT_SUDO_PID" "$AGENT_PID"
+  record_verdict "$n" "$W" "$rc" "$(seconds_since "$start")"
 }
 
 T0=$(date +%s)

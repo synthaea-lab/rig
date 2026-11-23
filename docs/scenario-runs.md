@@ -111,10 +111,10 @@ one scenario into the next. [`run_one`](../runner/run-scenarios.sh):
 
 1. **Skip check.** The first unmet `needs` entry, or a kernel older than `min_kernel`,
    records SKIP with the reason and moves on.
-2. **Content.** Copies `rules/sigma` and `rules/yara` from the rules checkout into
+2. **Content** (`stage_content`). Copies `rules/sigma` and `rules/yara` from the rules checkout into
    `runs/<stamp>/<name>/content/rules/`, plus the row's `yara` files, so a scenario's
    private YARA rule never reaches another scenario's agent.
-3. **Agent.** Starts, under `sudo` with `RUST_LOG=info`:
+3. **Agent** (`start_agent`). Starts, under `sudo` with `RUST_LOG=info`:
 
    ```bash
    agent run --standalone --content-dir <run>/<name>/content \
@@ -124,14 +124,14 @@ one scenario into the next. [`run_one`](../runner/run-scenarios.sh):
    `--standalone` keeps the agent off any control plane. The agent creates the alert and event
    files itself: a root process cannot open a file another user pre-created in a sticky
    directory under `fs.protected_regular`.
-4. **Readiness.** Waits up to 90 s for `sensor-linux: listening` in `agent.log`. If the agent
+4. **Readiness** (`start_agent`). Waits up to 90 s for `sensor-linux: listening` in `agent.log`. If the agent
    exits or the line never comes, the scenario is an ERROR ("agent did not start"). Then waits
    one more second.
-5. **Script.** Runs `bash <name>.sh` in the scenario's run directory, under `sudo` when `root`
+5. **Script** (`run_script`). Runs `bash <name>.sh` in the scenario's run directory, under `sudo` when `root`
    is `yes`, with a 300 s timeout, and with `EVENTS`, `ALERTS` and `AGENT_PID` set (plus the
    row's `env`), so a self-checking scenario can read the agent's files or signal it. Output
    goes to `scenario.log`.
-6. **Settle.** Sleeps the row's `settle` seconds, then polls the alert file once a second
+6. **Settle** (`wait_alerts_quiet`). Sleeps the row's `settle` seconds, then polls the alert file once a second
    until its size has not changed for 2 s, for at most 20 s. Correlated detections (beaconing,
    respawn, Bayesian belief) arrive after the activity that caused them.
 7. **Snapshot**, before stopping the agent: stopping it sends a signal to a security
@@ -139,7 +139,7 @@ one scenario into the next. [`run_one`](../runner/run-scenarios.sh):
 8. **Stop.** `SIGINT` through `sudo`, up to 15 s to exit, then `SIGKILL`. The agent runs as
    root under `sudo`, so the runner reads liveness from `/proc/<pid>` and signals through
    `sudo`.
-9. **Judge** the snapshot (below) and write the verdict to `<run>/<name>/verdict`. When the
+9. **Judge** (`record_verdict`) the snapshot (below) and write the verdict to `<run>/<name>/verdict`. When the
    script exited non-zero, the first five lines of `scenario.log` that contain `FAIL` or
    `ERROR` are added to the detail, since a self-checking scenario says there why it failed.
 
