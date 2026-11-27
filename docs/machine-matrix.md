@@ -48,7 +48,7 @@ under [`reports/`](../reports/) ([reports.md](reports.md#recording-a-result)).
 
 | Row | Status | Evidence |
 | --- | --- | --- |
-| `debian-12` | Validated on libvirt (`generic/debian12`), built with `--offline` and `--ort-compat`: 7 eBPF programs accepted, the 15 default scenarios run (`timestomp-linux` skipped below 6.3) | [`reports/2026-11-08-debian12.md`](../reports/2026-11-08-debian12.md) |
+| `debian-12` | Validated on libvirt (`generic/debian12`), built with `--offline` and `--ort-compat`: 7 eBPF programs accepted, the 15 default scenarios run (`timestomp-linux` skipped below 6.3). Run again on 2026-11-27 with `--ort-compat`: 15 programs accepted, 21 scenarios, the same two failures (`argv`, `response`) | [`reports/2026-11-08-debian12.md`](../reports/2026-11-08-debian12.md), [`reports/2026-11-27-debian12.md`](../reports/2026-11-27-debian12.md) |
 | `ubuntu-24.04` | Validated on Hyper-V before the current runner existed: programs accepted, argv and lineage checks passed | No report committed |
 | `debian-13` | Same as `ubuntu-24.04` | No report committed |
 | `fedora-41` | Validated on Hyper-V on kernel 6.17.7: native build with clang/LLVM 19, programs accepted, lineage and argv checks on a `__data_loc` `sched_process_fork`, packaged service running under SELinux enforcing with no AVC denial | No report committed |
