@@ -26,7 +26,7 @@ so the rows are about Windows SKUs rather than kernels.
 | --- | --- | --- | --- | --- |
 | `ubuntu-24.04` | `ubuntu2404` | Debian | 6.8 | The primary development and validation target |
 | `ubuntu-22.04` | `ubuntu2204` | Debian | 5.15 | The oldest supported LTS kernel, with the strictest verifier of the Debian family |
-| `debian-12` | `debian12` | Debian | 6.1 | Debian oldstable; a kernel without the 6.3 `inode_setattr` LSM signature |
+| `debian-12` | Validated on libvirt (`generic/debian12`, kernel 6.1.0-17), built with `--ort-compat`. 2026-11-08: 7 eBPF programs accepted, 15 scenarios. 2026-11-27: 15 programs, 21 scenarios, two failing (`argv`, `response`). 2026-11-28, agent `3ab443c2`: 20 pass, 1 skipped (`timestomp-linux` needs kernel 6.3), the same in five consecutive full runs. What changed in between is in the report's commit and in the scenarios' notes: three results used to vary between runs of one build | [`reports/2026-11-08-debian12.md`](../reports/2026-11-08-debian12.md), [`reports/2026-11-27-debian12.md`](../reports/2026-11-27-debian12.md), [`reports/2026-11-28-debian12.md`](../reports/2026-11-28-debian12.md) |
 | `debian-13` | `debian13` | Debian | 6.12 | The newest Debian kernel |
 | `fedora-41` | `fedora41` | RPM | 6.11, 6.17 with updates | The RPM family, SELinux enforcing, a `__data_loc` `sched_process_fork` once updated |
 | `rocky-9` | `rocky9` | RPM (RHEL) | 5.14 | The enterprise RHEL-clone baseline; replay only (no LLVM recent enough for the probes) |
@@ -55,7 +55,7 @@ under [`reports/`](../reports/) ([reports.md](reports.md#recording-a-result)).
 | `arch (rolling)` | Validated on kernel 7.2: the beacon scenario fired end to end | No report committed |
 | `ubuntu-22.04` | Not validated; the `--ort-compat` route for this release is untested | |
 | `rocky-9`, `alpine-3.24` | Not validated with the rig | |
-| `windows-11` | Validated on libvirt (`gusztavvargadr/windows-11`, build 26200) on 2026-11-28: the agent built in the guest, the four default scenarios passed. The opt-in ones (`bits-job`, `windows-container`) were not run | [`reports/2026-11-28-win11.md`](../reports/2026-11-28-win11.md) |
+| `windows-11` | Validated on libvirt (`gusztavvargadr/windows-11`, build 26200) on 2026-11-28: the agent builds in the guest and every expected alert of the four default scenarios fires in every run. The verdicts vary with what Windows itself does after a boot: two runs passed 4 of 4, and the committed one, on agent `3ab443c2`, has `svchost.exe` opening listeners (`T1571`) and the Program Compatibility Assistant updating its own scheduled task (`T1053.005`), which fails one scenario and marks another. Those are false positives of the agent, not of the rig. The opt-in scenarios (`bits-job`, `windows-container`) were not run. Runs between the first and the stale-build fix may have tested an older binary ([windows.md](windows.md#three-things-the-rig-works-around)) | [`reports/2026-11-28-win11.md`](../reports/2026-11-28-win11.md) |
 | `windows-10`, `windows-server` | Not run | |
 
 A row without a committed report should be re-run with `python3 rig.py run <machine>` before

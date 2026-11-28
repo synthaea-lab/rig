@@ -344,17 +344,55 @@ def sync(target: Machine) -> None:
         return
     archive = RIG / ".offline" / "synthaea-src.zip"
     archive.parent.mkdir(parents=True, exist_ok=True)
+    sent_record = archive.with_name(f"sent-{name}.json")
+    stamps = source_stamps()
+    changed = changed_since(read_stamps(sent_record), stamps)
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zf:
-        for part in [*SIBLINGS, "rig"]:
-            base = RIG if part == "rig" else ROOT / part
-            if not base.is_dir():
-                continue
-            files = (git(base, "ls-files", "--cached", "--others", "--exclude-standard") or "").splitlines()
-            for rel in files:
-                if (base / rel).is_file():
-                    zf.write(base / rel, f"{part}/{rel}")
+        for rel, path in source_files():
+            zf.write(path, rel)
+        zf.writestr(CHANGED_LIST, "".join(f"{rel}\n" for rel in changed))
     vagrant_run("upload", str(archive), "C:/synthaea-src.zip", name)
     vagrant_run(*guest.shell(name, guest.command("Expand-Archive", Flag("-Force"), "C:\\synthaea-src.zip", WIN_SRC)))
+    vagrant_run(*guest.shell(name, guest.invoke("provisioning/touch-changed.ps1")))
+    sent_record.write_text(json.dumps(stamps), encoding="utf-8")
+
+
+# The list, in the uploaded zip, of the files whose content changed since the last upload to
+# that machine. A zip carries the host's local times and the guest reads them in its own zone
+# and against its own clock, so an expanded file can look older than the last build although
+# it changed after it; cargo then rebuilds nothing. provisioning/touch-changed.ps1 stamps the
+# listed files with the guest's "now", which is the only clock cargo compares against.
+CHANGED_LIST = "rig-changed.txt"
+
+
+def source_files() -> list[tuple[str, Path]]:
+    """Every file a Windows guest receives, as (path in the zip, path here)."""
+    found = []
+    for part in [*SIBLINGS, "rig"]:
+        base = RIG if part == "rig" else ROOT / part
+        if not base.is_dir():
+            continue
+        listed = (git(base, "ls-files", "--cached", "--others", "--exclude-standard") or "").splitlines()
+        found += [(f"{part}/{rel}", base / rel) for rel in listed if (base / rel).is_file()]
+    return found
+
+
+def source_stamps() -> dict[str, list[int]]:
+    """Size and modification time of each source file: what tells a changed file here."""
+    return {rel: [path.stat().st_size, path.stat().st_mtime_ns] for rel, path in source_files()}
+
+
+def read_stamps(record: Path) -> dict[str, list[int]]:
+    """The stamps recorded at the last upload to a machine; none when there was no upload."""
+    try:
+        return json.loads(record.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def changed_since(sent: dict[str, list[int]], now: dict[str, list[int]]) -> list[str]:
+    """The files that are new or differ from what was last sent, in a stable order."""
+    return sorted(rel for rel, stamp in now.items() if sent.get(rel) != stamp)
 
 
 # --- commands -------------------------------------------------------------------------
