@@ -120,6 +120,12 @@ end
 def define_windows_provisioners(m, spec)
   # WinRM caps the memory of everything a remote shell starts (800 MB on these boxes), and
   # link.exe then fails with LNK1102 on the first build script. The cap becomes the guest's RAM.
+  # Windows reads the hardware clock as local time and every provider here gives it UTC, so a
+  # guest left in another zone runs hours off, and every time in its reports with it. In UTC
+  # the two agree. The clock is also set once from the host's, because Windows has by then
+  # written its wrong time back to the hardware clock.
+  m.vm.provision "utc-clock", type: "shell",
+    inline: "tzutil /s UTC; Set-Date -Date ([datetime]::ParseExact('#{Time.now.utc.strftime('%Y-%m-%dT%H:%M:%S')}', 'yyyy-MM-ddTHH:mm:ss', $null)) | Out-Null"
   m.vm.provision "winrm-memory", type: "shell",
     inline: "Set-Item WSMan:\\localhost\\Shell\\MaxMemoryPerShellMB #{memory_mb(spec)} -Force -WarningAction SilentlyContinue"
   # rustup (stable-msvc) + the MSVC/Windows SDK Build Tools the ETW, Event Log and
