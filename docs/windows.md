@@ -78,11 +78,13 @@ itself.
 
 The runner first ran end to end on 2026-11-28, on `win11` under libvirt: the agent built in
 the guest and the four default scenarios passed
-([`reports/2026-11-28-win11.md`](../reports/2026-11-28-win11.md)). `win10` and `winserver`
+(rerun the same day on later agents after the stale-build fix below; the committed
+[`reports/2026-11-28-win11.md`](../reports/2026-11-28-win11.md) is the last of those, where
+Windows' own activity after a boot adds alerts: see [machine-matrix.md](machine-matrix.md)). `win10` and `winserver`
 have not been run. Its parts are also tested against fakes by `rig.py check`
 ([testing.md](testing.md)).
 
-### Two things WinRM does that the rig works around
+### Three things the rig works around
 
 - **A memory cap per remote shell.** WinRM limits everything a remote shell starts to
   `MaxMemoryPerShellMB`, 800 MB on the `gusztavvargadr` boxes. `link.exe` then fails with
@@ -91,6 +93,14 @@ have not been run. Its parts are also tested against fakes by `rig.py check`
 - **A thrown error exits 0.** `vagrant winrm` reports only an `exit`, so a guest script that
   throws would look like a success. `rig.py` wraps each guest script in a `try`/`catch` that
   prints the error and exits 1.
+- **Uploaded sources can look older than the last build.** The zip carries the host's local
+  times; the guest reads them in its own time zone and against its own clock, which on these
+  boxes is hours off. cargo compares modification times, so a file changed after a build could
+  look older than it and nothing was rebuilt: `build` took four seconds and the lab tested the
+  previous binary under the new commit's name. `rig.py` now records what it sent to each
+  machine (`.offline/sent-<machine>.json`), lists the files that changed since in the zip, and
+  [`touch-changed.ps1`](../provisioning/touch-changed.ps1) stamps those with the guest's own
+  "now". A `build` that prints `0 file(s) stamped` built nothing new, and says so.
 
 ### Running the toolchain script by hand
 

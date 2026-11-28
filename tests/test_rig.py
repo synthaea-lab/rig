@@ -7,6 +7,7 @@ quoting must not change what an ordinary build or run sends to a VM.
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -132,3 +133,25 @@ class NonAsciiLines(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ChangedSourcesAreListedForTheGuest(unittest.TestCase):
+    def test_a_first_upload_lists_every_file(self) -> None:
+        now = {"agent/a.rs": [10, 1], "rig/rig.py": [20, 2]}
+        self.assertEqual(rig.changed_since({}, now), ["agent/a.rs", "rig/rig.py"])
+
+    def test_only_a_file_whose_size_or_time_differs_is_listed(self) -> None:
+        sent = {"agent/a.rs": [10, 1], "agent/b.rs": [10, 1], "agent/c.rs": [10, 1]}
+        now = {"agent/a.rs": [10, 1], "agent/b.rs": [11, 1], "agent/c.rs": [10, 5], "agent/d.rs": [1, 1]}
+        self.assertEqual(rig.changed_since(sent, now), ["agent/b.rs", "agent/c.rs", "agent/d.rs"])
+
+    def test_a_file_that_was_deleted_is_not_listed(self) -> None:
+        self.assertEqual(rig.changed_since({"agent/gone.rs": [1, 1]}, {}), [])
+
+    def test_a_missing_or_unreadable_record_means_nothing_was_sent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(rig.read_stamps(Path(tmp) / "absent.json"), {})
+            broken = Path(tmp) / "broken.json"
+            broken.write_text("{not json", encoding="utf-8")
+            self.assertEqual(rig.read_stamps(broken), {})
+
