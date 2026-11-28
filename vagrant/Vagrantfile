@@ -118,6 +118,10 @@ def define_linux_sync(m, name)
 end
 
 def define_windows_provisioners(m, spec)
+  # WinRM caps the memory of everything a remote shell starts (800 MB on these boxes), and
+  # link.exe then fails with LNK1102 on the first build script. The cap becomes the guest's RAM.
+  m.vm.provision "winrm-memory", type: "shell",
+    inline: "Set-Item WSMan:\\localhost\\Shell\\MaxMemoryPerShellMB #{memory_mb(spec)} -Force -WarningAction SilentlyContinue"
   # rustup (stable-msvc) + the MSVC/Windows SDK Build Tools the ETW, Event Log and
   # SCM sensors link against. Idempotent: `vagrant provision <machine>` re-runs it.
   m.vm.provision "toolchain", type: "shell", path: provision_script(spec)

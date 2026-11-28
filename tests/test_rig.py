@@ -37,7 +37,8 @@ class OrdinaryCommandsAreUnchanged(unittest.TestCase):
         self.assertEqual(
             rig.build_command("win11", WINDOWS, SOURCE, LinuxBuildOptions(offline=True, ort="static", ort_compat=True)),
             ["winrm", "win11", "--shell", "powershell", "--command",
-             f"& C:\\synthaea\\rig\\provisioning\\agent-build.ps1 -Source '{SOURCE}'"])
+             f"try {{ & C:\\synthaea\\rig\\provisioning\\agent-build.ps1 -Source '{SOURCE}' }}"
+             " catch { $_ | Out-String | Write-Output; exit 1 }"])
 
     def test_linux_run(self) -> None:
         self.assertEqual(
@@ -55,8 +56,8 @@ class OrdinaryCommandsAreUnchanged(unittest.TestCase):
         self.assertEqual(
             rig.run_command("win11", WINDOWS, SOURCE, ["bits-job", "windows-container"]),
             ["winrm", "win11", "--shell", "powershell", "--command",
-             f"& C:\\synthaea\\rig\\runner\\run-scenarios.ps1 -Machine win11 -Source '{SOURCE}' "
-             "bits-job windows-container"])
+             f"try {{ & C:\\synthaea\\rig\\runner\\run-scenarios.ps1 -Machine win11 -Source '{SOURCE}' "
+             "bits-job windows-container } catch { $_ | Out-String | Write-Output; exit 1 }"])
 
     def test_windows_unpack(self) -> None:
         self.assertEqual(
@@ -81,7 +82,8 @@ class CraftedArgumentsStayOneWord(unittest.TestCase):
 
     def test_windows_doubles_single_quotes(self) -> None:
         self.assertEqual(WINDOWS.invoke("runner/run-scenarios.ps1", Flag("-Source"), "it's; Stop-Computer"),
-                         "& C:\\synthaea\\rig\\runner\\run-scenarios.ps1 -Source 'it''s; Stop-Computer'")
+                         "try { & C:\\synthaea\\rig\\runner\\run-scenarios.ps1 -Source 'it''s; Stop-Computer' }"
+                         " catch { $_ | Out-String | Write-Output; exit 1 }")
 
     def test_windows_doubles_typographic_single_quotes(self) -> None:
         self.assertEqual(WINDOWS.quote("a\u2019b"), "'a\u2019\u2019b'")

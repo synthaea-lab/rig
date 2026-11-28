@@ -45,6 +45,13 @@ try {
     $counts = Get-Counts (Join-Path $work "missing.ndjson")
     Assert-True ($counts.Count -eq 0) "Get-Counts of a missing file: $($counts.Count) techniques"
 
+    # Get-AlertLines
+    $dash = [string][char]0x2014
+    $utf8 = Join-Path $work "alerts.utf8.ndjson"
+    [System.IO.File]::WriteAllText($utf8, '{"ts_ns":1,"technique":"T1059","message":"C:\\a \"b\" ' + $dash + ' c"}' + "`n", (New-Object System.Text.UTF8Encoding $false))
+    $lines = @(Get-AlertLines $utf8)
+    Assert-True ($lines.Count -eq 1 -and $lines[0] -ceq ('T1059  C:\a "b" ' + $dash + ' c')) "Get-AlertLines: $($lines -join ' / ')"
+
     # Format-Cell
     Assert-True ((Format-Cell "a|b") -ceq 'a\|b') "Format-Cell 'a|b': $(Format-Cell 'a|b')"
     Assert-True ((Format-Cell "") -ceq "-") "Format-Cell '': $(Format-Cell '')"

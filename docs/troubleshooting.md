@@ -18,6 +18,7 @@ command yourself in the guest (`vagrant ssh <machine>` from `vagrant/`) to see i
 | Offline eBPF build: `no matching package named core` or `compiler_builtins` | The vendor directory lacks the sysroot crates, because the bundle was made by hand. Let `--offline` make it ([offline-builds.md](offline-builds.md#why-the-sysroot-crates)) |
 | `the offline bundle (...) was made for another Cargo.lock or probe toolchain` | The agent's lockfile or toolchain changed. Re-run the build from the host with `--offline`, which makes and pushes a new bundle |
 | Online builds fail with `failed to select a version ... vendored-sources` | A hand-written `~/.cargo/config.toml` with a global source replacement. `agent-build.sh` moves such a file aside to `config.toml.vendored-bak`; check for one under another name |
+| A Windows build fails with `LNK1102: out of memory` | WinRM's per-shell memory cap, not the guest's RAM. A machine created before the `winrm-memory` provisioner existed needs `vagrant provision <machine> --provision-with winrm-memory` |
 | rustc is killed with `signal: 9` | Too little RAM for the job count. Re-run `vagrant provision <machine> --provision-with build-host-setup` after changing `RIG_MEMORY_MB`, so `CARGO_BUILD_JOBS` follows |
 | `No space left on device` during provisioning | A box with small volumes. See the box's fix-up in [vagrant/README.md](../vagrant/README.md#hyper-v-community-boxes-68--612-fedora) |
 
