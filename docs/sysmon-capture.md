@@ -12,7 +12,7 @@ the VM's network restrictions in place.
 
 ## The configuration
 
-[`provisioning/sysmon-adr0026.xml`](../provisioning/sysmon-adr0026.xml) enables only the
+[`provisioning/sysmon-capture.xml`](../provisioning/sysmon-capture.xml) enables only the
 event types the capture is about:
 
 | Event ID | Type | Rule |
@@ -48,7 +48,7 @@ not Defender, the firewall, the audit policy or any other protection.
 
 2. Download Sysmon from
    [Microsoft Sysinternals](https://learn.microsoft.com/en-us/sysinternals/downloads/sysmon)
-   and extract it in the VM, for example to `C:\Lab\Sysmon`. Copy `sysmon-adr0026.xml` there.
+   and extract it in the VM, for example to `C:\Lab\Sysmon`. Copy `sysmon-capture.xml` there.
 
 3. Check the configuration schema. The file declares schema 4.90; if the binary reports
    another, adjust only `schemaversion`:
@@ -56,13 +56,13 @@ not Defender, the firewall, the audit policy or any other protection.
    ```powershell
    Set-Location C:\Lab\Sysmon
    .\Sysmon64.exe -s
-   [xml](Get-Content -Raw .\sysmon-adr0026.xml) | Out-Null
+   [xml](Get-Content -Raw .\sysmon-capture.xml) | Out-Null
    ```
 
 4. Install with the configuration:
 
    ```powershell
-   .\Sysmon64.exe -accepteula -i .\sysmon-adr0026.xml
+   .\Sysmon64.exe -accepteula -i .\sysmon-capture.xml
    ```
 
 5. Enlarge the channel right away. Events 17, 18 and 26 are logged without any rule, so the
