@@ -23,7 +23,9 @@ The order matters: swap and the job cap must exist before the toolchain compiles
 aya-tool, and a box fix-up that relocates directories must run before anything writes to the
 small volumes it works around.
 
-Windows guests run `winrm-memory`, which raises WinRM's per-shell memory cap to the guest's
+Windows guests run `utc-clock`, which puts the guest in UTC and sets its clock from the
+host's (Windows reads the hardware clock as local time, the providers give it UTC, and a guest
+left in another zone runs hours off), then `winrm-memory`, which raises WinRM's per-shell memory cap to the guest's
 RAM ([windows.md](windows.md#three-things-the-rig-works-around)), then `toolchain`
 ([`windows-toolchain.ps1`](https://github.com/synthaea-lab/agent/blob/main/packaging/toolchain/windows-toolchain.ps1)):
 rustup with `stable-msvc` and, if missing, the Visual Studio Build Tools with the C++
