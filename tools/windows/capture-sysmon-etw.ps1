@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Passive lab capture for ADR-0026 follow-up 1 (#715): what the Sysmon channel
+    Passive lab capture for the Sysmon decision (#715): what the Sysmon channel
     carries, and whether two driver-free ETW providers can replace Sysmon ids 8
     and 10 for a non-PPL consumer.
 
@@ -139,7 +139,7 @@ function Write-EventStats {
     }
 }
 
-Write-RigSummary $summary "# Sysmon / driver-free candidate capture (ADR-0026, #715)"
+Write-RigSummary $summary "# Sysmon / driver-free candidate capture (#715)"
 Write-RigSummary $summary ("Date (UTC): " + (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss"))
 Write-RigSummary $summary ("Host: " + $env:COMPUTERNAME)
 $os = Get-CimInstance Win32_OperatingSystem
@@ -268,4 +268,4 @@ if (-not $SkipEtw) {
     Write-RigSummary $summary ""
 }
 
-Write-RigSummary $summary ("Done. Read " + $summary + "; keep the .etl and .xml files for the ADR-0026 capture report.")
+Write-RigSummary $summary ("Done. Read " + $summary + "; keep the .etl and .xml files for the Sysmon capture report.")

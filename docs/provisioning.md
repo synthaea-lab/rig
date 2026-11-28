@@ -196,5 +196,5 @@ scenario ([windows.md](windows.md#the-windows-runner)).
 | --- | --- |
 | [`provisioning/agent-install.ps1`](../provisioning/agent-install.ps1) | By hand, in a Windows guest: installs an already-built `agent.exe` and `watchdog.exe` (from `-SourceDir` or `-AgentZip`) into `C:\Synthaea`, the `rules\sigma` and `rules\yara` content under `<StateDir>\content`, and with `-InstallService` registers the watchdog service. For testing the packaged service path rather than the runner's standalone agent. See [windows.md](windows.md#installing-a-built-agent) |
 | [`provisioning/fedora-test-setup.sh`](../provisioning/fedora-test-setup.sh) | By hand, in a Fedora guest: checks prerequisites and disk space, builds the static ONNX Runtime and writes the environment for a static-link build |
-| [`provisioning/sysmon-adr0026.xml`](../provisioning/sysmon-adr0026.xml) | The Sysmon configuration of the [Sysmon capture](sysmon-capture.md) |
+| [`provisioning/sysmon-capture.xml`](../provisioning/sysmon-capture.xml) | The Sysmon configuration of the [Sysmon capture](sysmon-capture.md) |
 | [`tools/diagnose-ebpf-toolchain.sh`](../tools/diagnose-ebpf-toolchain.sh) | In a Linux guest, when a build has no embedded probes: checks bpf-linker, the nightly's `rust-src` and the LLVM versions, then runs a verbose probe build so the real error is visible |

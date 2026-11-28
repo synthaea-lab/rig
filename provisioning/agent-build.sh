@@ -221,7 +221,7 @@ build_agent() {
   [ -x "$AGENT_BIN" ] || die "no binary at $AGENT_BIN"
 }
 
-# The agent refuses to start without a config (ADR-0013); a lab guest uses the template.
+# The agent refuses to start without a config; a lab guest uses the template.
 install_default_config() {
   if [ ! -f /etc/synthaea/agent.toml ]; then
     sudo install -D -m 0644 "$SRC/crates/config/data/default-agent.toml" /etc/synthaea/agent.toml
