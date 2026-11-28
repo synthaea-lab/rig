@@ -76,8 +76,21 @@ validation share. Every function acts only on the handle it is given and sets no
 script-scope state, so a caller that must stop agents in a `finally` block keeps its handles
 itself.
 
-The Windows runner has not yet run end to end on a lab VM; its parts are tested against
-fakes by `rig.py check` ([testing.md](testing.md)).
+The runner first ran end to end on 2026-11-28, on `win11` under libvirt: the agent built in
+the guest and the four default scenarios passed
+([`reports/2026-11-28-win11.md`](../reports/2026-11-28-win11.md)). `win10` and `winserver`
+have not been run. Its parts are also tested against fakes by `rig.py check`
+([testing.md](testing.md)).
+
+### Two things WinRM does that the rig works around
+
+- **A memory cap per remote shell.** WinRM limits everything a remote shell starts to
+  `MaxMemoryPerShellMB`, 800 MB on the `gusztavvargadr` boxes. `link.exe` then fails with
+  `LNK1102: out of memory` on the first build script, whatever RAM the guest has. The
+  `winrm-memory` provisioner raises the cap to the guest's memory.
+- **A thrown error exits 0.** `vagrant winrm` reports only an `exit`, so a guest script that
+  throws would look like a success. `rig.py` wraps each guest script in a `try`/`catch` that
+  prints the error and exits 1.
 
 ### Running the toolchain script by hand
 

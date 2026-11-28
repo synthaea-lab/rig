@@ -76,6 +76,9 @@ def load_catalog(path: Path) -> dict[str, Machine]:
 
 
 GUESTS = ("linux", "windows")
+# A PowerShell script that throws leaves `vagrant winrm` exiting 0: only an `exit` reaches it.
+# So the rig catches the error, prints it as the script would have, and exits 1 itself.
+WINDOWS_FAILURE_EXITS_1 = "try {{ {call} }} catch {{ $_ | Out-String | Write-Output; exit 1 }}"
 PROVIDERS = ("libvirt", "hyperv", "qemu", "virtualbox")
 PROVISION_SUFFIX = {"linux": ".sh", "windows": ".ps1"}
 MACHINE_FIELDS = {"guest", "matrix", "primary", "boxes", "provision", "prep", "qemu_ssh_port",
@@ -286,8 +289,9 @@ class Guest:
 
     def invoke(self, script: str, *args: str, env: dict[str, str] | None = None) -> str:
         """The command line that runs the rig's `script` (bash or PowerShell) with `args`."""
-        launcher = "&" if self.windows else "bash"
-        return self._line([launcher, self.quote(self.script_path(script))], args, env)
+        if not self.windows:
+            return self._line(["bash", self.quote(self.script_path(script))], args, env)
+        return WINDOWS_FAILURE_EXITS_1.format(call=self._line(["&", self.quote(self.script_path(script))], args, env))
 
     def _line(self, head: list[str], args: tuple[str, ...], env: dict[str, str] | None) -> str:
         assignments = []

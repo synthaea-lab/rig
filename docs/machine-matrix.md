@@ -48,14 +48,15 @@ under [`reports/`](../reports/) ([reports.md](reports.md#recording-a-result)).
 
 | Row | Status | Evidence |
 | --- | --- | --- |
-| `debian-12` | Validated on libvirt (`generic/debian12`), built with `--offline` and `--ort-compat`: 7 eBPF programs accepted, the 15 default scenarios run (`timestomp-linux` skipped below 6.3). Run again on 2026-11-27 with `--ort-compat`: 15 programs accepted, 21 scenarios, the same two failures (`argv`, `response`) | [`reports/2026-11-08-debian12.md`](../reports/2026-11-08-debian12.md), [`reports/2026-11-27-debian12.md`](../reports/2026-11-27-debian12.md) |
+| `debian-12` | Validated on libvirt (`generic/debian12`), built with `--offline` and `--ort-compat`: 7 eBPF programs accepted, the 15 default scenarios run (`timestomp-linux` skipped below 6.3). Run again on 2026-11-27 with `--ort-compat`: 15 programs accepted, 21 scenarios, the same two failures (`argv`, `response`). On 2026-11-28, with the `argv` scenario corrected: 13 pass, 7 with alerts beyond the expected ones, none failing. `response`, `beacon` and `profile-d-write` changed result between runs of the same day with no change to their code paths, so they depend on timing | [`reports/2026-11-08-debian12.md`](../reports/2026-11-08-debian12.md), [`reports/2026-11-27-debian12.md`](../reports/2026-11-27-debian12.md), [`reports/2026-11-28-debian12.md`](../reports/2026-11-28-debian12.md) |
 | `ubuntu-24.04` | Validated on Hyper-V before the current runner existed: programs accepted, argv and lineage checks passed | No report committed |
 | `debian-13` | Same as `ubuntu-24.04` | No report committed |
 | `fedora-41` | Validated on Hyper-V on kernel 6.17.7: native build with clang/LLVM 19, programs accepted, lineage and argv checks on a `__data_loc` `sched_process_fork`, packaged service running under SELinux enforcing with no AVC denial | No report committed |
 | `arch (rolling)` | Validated on kernel 7.2: the beacon scenario fired end to end | No report committed |
 | `ubuntu-22.04` | Not validated; the `--ort-compat` route for this release is untested | |
 | `rocky-9`, `alpine-3.24` | Not validated with the rig | |
-| Windows rows | The Windows runner has not yet run end to end on a lab VM | |
+| `windows-11` | Validated on libvirt (`gusztavvargadr/windows-11`, build 26200) on 2026-11-28: the agent built in the guest, the four default scenarios passed. The opt-in ones (`bits-job`, `windows-container`) were not run | [`reports/2026-11-28-win11.md`](../reports/2026-11-28-win11.md) |
+| `windows-10`, `windows-server` | Not run | |
 
 A row without a committed report should be re-run with `python3 rig.py run <machine>` before
 a result is quoted, and the report committed.

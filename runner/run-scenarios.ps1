@@ -93,11 +93,21 @@ function Get-Counts {
   param([Parameter(Mandatory)][string]$File)
   $counts = @{}
   if (Test-Path $File) {
-    foreach ($l in Get-Content $File) {
+    foreach ($l in Get-Content -LiteralPath $File -Encoding UTF8) {
       if ($l -match '"technique":"([^"]*)"') { $counts[$Matches[1]] = 1 + [int]$counts[$Matches[1]] }
     }
   }
   return $counts
+}
+
+function Get-AlertLines {
+  <# The alerts of the file $File as report lines, "technique  message". The agent writes
+     UTF-8, which Windows PowerShell 5.1 reads as ANSI unless told. #>
+  param([Parameter(Mandatory)][string]$File)
+  foreach ($l in Get-Content -LiteralPath $File -Encoding UTF8) {
+    $alert = ConvertFrom-Json $l
+    "$($alert.technique)  $($alert.message)"
+  }
 }
 
 function Invoke-ScenarioScript {
@@ -213,7 +223,7 @@ foreach ($r in $results) {
   $snap = Join-Path $run "$($r.Name)\alerts.snapshot.ndjson"
   if ((Test-Path $snap) -and (Get-Item $snap).Length -gt 0) {
     $md += ""; $md += '```'
-    $md += Get-Content $snap | ForEach-Object { $_ -replace '.*"technique":"([^"]*)","message":"(.*)"}$', '$1  $2' }
+    $md += Get-AlertLines $snap
     $md += '```'
   }
 }
